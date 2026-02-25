@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<!--
+  dashboard.html — Market Feed Dashboard
+  =======================================
+  Served by server.py via Flask's render_template().
+
+  Template variables injected by Jinja2:
+    {{ symbols }}  — JSON list of initial symbols (e.g. ["AAPL","AMZN","BINANCE:BTCUSDT"])
+
+  Key features
+  ─────────────
+  1. Candlestick chart (ApexCharts) — renders OHLCV bars received as `candle` events.
+     Live trades are aggregated client-side into 1-min bars and merged in real-time.
+
+  2. Multi-symbol ticker bar — clicking a ticker switches the chart to that symbol.
+
+  3. Add Symbol panel — type any ticker, hit Enter or click "+". The client emits
+     `subscribe_symbol`; the server validates, fetches history, and broadcasts `candle`
+     events back. A toast notification confirms success / failure.
+
+  4. Favourites list — any tracked symbol can be starred (⭐). Favourites are stored in
+     localStorage so they survive page refreshes. The panel shows only starred tickers
+     with their latest price and % change.
+
+  5. Trade log — scrolling feed of the last ~60 raw tick events across all symbols.
+
+  Socket events consumed
+  ──────────────────────
+    candle        {symbol, time, open, high, low, close, volume}
+    trade         {symbol, price, volume, time}
+    history_done  {symbol}   — all historical candles for a symbol have been sent
+    symbol_ack    {symbol, ok, error?, already?}   — response to subscribe_symbol
+
+  Socket events emitted
+  ─────────────────────
+    subscribe_symbol  {symbol}
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Market Terminal</title>
+
+<!-- Fonts: IBM Plex Mono (monospace data) + Syne (display headings) -->
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet"/>
+
+<!-- ApexCharts: full-featured charts with built-in candlestick type -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/apexcharts/3.45.1/apexcharts.min.js"></script>
+
+<!-- Socket.IO client — must match the version used by Flask-SocketIO on the server -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   CSS CUSTOM PROPERTIES — change these to retheme everything
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --bg:        #07080b;   /* page background */
+  --panel:     #0c0f15;   /* card / panel background */
+  --border:    #1a2230;   /* subtle borders */
+  --accent:    #f0b429;   /* amber — primary accent */
+  --accent2:   #00c9a7;   /* teal — secondary accent */
+  --bull:      #26a69a;   /* candlestick bullish (close > open) */
+  --bear:      #ef5350;   /* candlestick bearish (close < open) */
+  --muted:     #3d5063;   /* de-emphasised text */
+  --text:      #c9d4dc;   /* body text */
+  --text-dim:  #637d8f;   /* secondary text */
+  --mono:      'IBM Plex Mono', monospace;
+  --display:   'Syne', sans-serif;
+  --radius:    6px;
+}
+
+/* ─── Reset ─── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  min-height: 100vh;
+  display: grid;
+  /* Layout: left sidebar | main content */
+  grid-template-rows: auto auto 1fr auto;
+  grid-template-columns: 220px 1fr;
+  grid-template-areas:
+    "header  header"
+    "ticker  ticker"
+    "sidebar main"
+    "log     log";
+  overflow-x: hidden;
+}
+
+/* Subtle scanline texture over everything */
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px, transparent 2px,
+    rgba(0,0,0,.04) 2px, rgba(0,0,0,.04) 3px
+  );
+  pointer-events: none;
+  z-index: 1000;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HEADER
+   ═══════════════════════════════════════════════════════════════ */
+header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.logo {
+  font-family: var(--display);
+  font-size: 1.1rem;
+  letter-spacing: .06em;
+  color: var(--accent);
+  text-shadow: 0 0 20px rgba(240,180,41,.25);
+}
+.logo em { color: var(--muted); font-style: normal; }
+
+/* Connection status indicator */
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: .7rem;
+  color: var(--muted);
+  letter-spacing: .1em;
+}
+#conn-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: background .3s;
+}
+#conn-dot.live {
+  background: var(--bull);
+  box-shadow: 0 0 0 0 rgba(38,166,154,.6);
+  animation: blink 2s infinite;
+}
+@keyframes blink {
+  0%   { box-shadow: 0 0 0 0   rgba(38,166,154,.6); }
+  70%  { box-shadow: 0 0 0 8px rgba(38,166,154,0);  }
+  100% { box-shadow: 0 0 0 0   rgba(38,166,154,0);  }
+}
+
+/* Clock in header */
+#clock {
+  font-size: .72rem;
+  color: var(--text-dim);
+  letter-spacing: .08em;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TICKER BAR  — horizontal scrollable row of symbol cards
+   ═══════════════════════════════════════════════════════════════ */
+.ticker-bar {
+  grid-area: ticker;
+  display: flex;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  scrollbar-width: none;
+}
+.ticker-bar::-webkit-scrollbar { display: none; }
+
+/* Each symbol card in the ticker bar */
+.tc {
+  flex: 0 0 auto;
+  padding: 10px 20px;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  position: relative;
+  transition: background .15s;
+  min-width: 130px;
+}
+.tc:hover { background: rgba(240,180,41,.04); }
+.tc.active { background: rgba(240,180,41,.07); }
+.tc.active::after {
+  content: '';
+  position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.tc-sym  { font-size: .62rem; color: var(--muted); letter-spacing: .12em; margin-bottom: 3px; }
+.tc-price {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--text);
+  transition: color .3s;
+}
+.tc-price.up   { color: var(--bull); }
+.tc-price.down { color: var(--bear); }
+.tc-chg        { font-size: .68rem; color: var(--text-dim); margin-top: 1px; }
+.tc-chg.up     { color: var(--bull); }
+.tc-chg.down   { color: var(--bear); }
+
+/* Star / favourite button on each card */
+.tc-star {
+  position: absolute;
+  top: 8px; right: 8px;
+  font-size: .8rem;
+  cursor: pointer;
+  opacity: .3;
+  transition: opacity .2s, transform .2s;
+  user-select: none;
+  line-height: 1;
+}
+.tc-star.active { opacity: 1; }
+.tc-star:hover  { transform: scale(1.25); }
+
+/* ═══════════════════════════════════════════════════════════════
+   SIDEBAR  — favourites list + add-symbol panel
+   ═══════════════════════════════════════════════════════════════ */
+.sidebar {
+  grid-area: sidebar;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+}
+
+.panel-title {
+  font-size: .6rem;
+  letter-spacing: .15em;
+  color: var(--muted);
+  padding: 12px 16px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  text-transform: uppercase;
+}
+
+/* ── Favourites panel ── */
+#fav-list {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--panel);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* A single favourite row */
+.fav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 16px;
+  border-bottom: 1px solid rgba(26,34,48,.7);
+  cursor: pointer;
+  transition: background .12s;
+}
+.fav-row:hover { background: rgba(240,180,41,.04); }
+.fav-row.active-fav { background: rgba(240,180,41,.07); }
+
+.fav-sym   { font-size: .72rem; color: var(--accent); }
+.fav-right { text-align: right; }
+.fav-price { font-size: .78rem; }
+.fav-chg   { font-size: .65rem; color: var(--text-dim); }
+.fav-chg.up   { color: var(--bull); }
+.fav-chg.down { color: var(--bear); }
+
+.fav-empty {
+  padding: 24px 16px;
+  color: var(--muted);
+  font-size: .7rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
+/* ── Add symbol panel ── */
+.add-panel {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  padding: 12px;
+}
+
+.add-panel label {
+  display: block;
+  font-size: .6rem;
+  letter-spacing: .12em;
+  color: var(--muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.add-row {
+  display: flex;
+  gap: 6px;
+}
+
+/* Text input for ticker symbol */
+#sym-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: .8rem;
+  padding: 7px 10px;
+  outline: none;
+  text-transform: uppercase;
+  transition: border-color .2s;
+}
+#sym-input:focus { border-color: var(--accent); }
+#sym-input::placeholder { color: var(--muted); }
+
+/* Add button */
+#sym-add-btn {
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: #000;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: .8rem;
+  font-weight: 500;
+  padding: 7px 12px;
+  transition: opacity .2s;
+}
+#sym-add-btn:hover    { opacity: .85; }
+#sym-add-btn:disabled { opacity: .4; cursor: default; }
+
+/* Loading spinner (shown while server validates the symbol) */
+.spinner {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border: 2px solid rgba(255,255,255,.2);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#add-status {
+  margin-top: 6px;
+  font-size: .65rem;
+  min-height: 14px;
+  color: var(--text-dim);
+}
+#add-status.ok  { color: var(--bull); }
+#add-status.err { color: var(--bear); }
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN  — chart area
+   ═══════════════════════════════════════════════════════════════ */
+.main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.chart-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.chart-title {
+  font-family: var(--display);
+  font-size: .9rem;
+  color: var(--text);
+  letter-spacing: .06em;
+}
+.chart-title span { color: var(--accent); }
+
+/* OHLCV stats row above the chart */
+.ohlcv-bar {
+  display: flex;
+  gap: 20px;
+  font-size: .65rem;
+  color: var(--text-dim);
+  flex-wrap: wrap;
+}
+.ohlcv-bar b { color: var(--text); font-weight: 400; margin-left: 3px; }
+
+/* The chart container — ApexCharts fills this div */
+#chart-container {
+  flex: 1;
+  min-height: 340px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 12px 4px 4px;
+  position: relative;
+}
+
+/* Overlay shown while historical data is loading */
+#loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(12,15,21,.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  font-size: .75rem;
+  color: var(--muted);
+  letter-spacing: .1em;
+  z-index: 10;
+  gap: 10px;
+  transition: opacity .3s;
+}
+#loading-overlay.hidden { opacity: 0; pointer-events: none; }
+
+/* ═══════════════════════════════════════════════════════════════
+   TRADE LOG  — scrolling tick feed at the bottom
+   ═══════════════════════════════════════════════════════════════ */
+.log-section {
+  grid-area: log;
+  height: 180px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+}
+
+.log-table-wrap {
+  overflow-y: auto;
+  flex: 1;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* Fixed header row */
+.log-head, .log-row {
+  display: grid;
+  grid-template-columns: 90px 130px 1fr 110px 90px;
+  padding: 6px 20px;
+  font-size: .68rem;
+}
+.log-head {
+  font-size: .6rem;
+  letter-spacing: .1em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0;
+  background: var(--panel);
+  z-index: 1;
+  text-transform: uppercase;
+}
+.log-row {
+  border-bottom: 1px solid rgba(26,34,48,.5);
+  animation: fadeIn .18s ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: none; }
+}
+.col-time  { color: var(--muted); }
+.col-sym   { color: var(--accent2); }
+.col-price { text-align: right; }
+.col-price.up   { color: var(--bull); }
+.col-price.down { color: var(--bear); }
+.col-chg   { text-align: right; font-size: .65rem; }
+.col-chg.up   { color: var(--bull); }
+.col-chg.down { color: var(--bear); }
+.col-vol   { text-align: right; color: var(--muted); }
+
+/* ═══════════════════════════════════════════════════════════════
+   TOAST NOTIFICATIONS
+   ═══════════════════════════════════════════════════════════════ */
+#toast-container {
+  position: fixed;
+  top: 20px; right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-size: .72rem;
+  color: var(--text);
+  opacity: 0;
+  transform: translateX(20px);
+  animation: toastIn .25s forwards, toastOut .3s 2.5s forwards;
+  max-width: 260px;
+}
+.toast.ok  { border-left: 3px solid var(--bull); }
+.toast.err { border-left: 3px solid var(--bear); }
+@keyframes toastIn  { to   { opacity: 1; transform: none; } }
+@keyframes toastOut { from { opacity: 1; } to { opacity: 0; } }
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE TWEAKS
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 700px) {
+  body {
+    grid-template-areas:
+      "header  header"
+      "ticker  ticker"
+      "main    main"
+      "sidebar sidebar"
+      "log     log";
+    grid-template-columns: 1fr;
+  }
+  .sidebar { border-right: none; border-top: 1px solid var(--border); }
+  .log-head, .log-row { grid-template-columns: 80px 100px 1fr 90px; }
+  .col-chg { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     HEADER
+     ═══════════════════════════════════════════════════════════════ -->
+<header>
+  <div class="logo">MARKET<em>//</em>TERMINAL</div>
+  <span id="clock"></span>
+  <div class="status">
+    <div id="conn-dot"></div>
+    <span id="conn-label">CONNECTING</span>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     TICKER BAR  (populated dynamically by JS)
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="ticker-bar" id="ticker-bar"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SIDEBAR — favourites + add symbol
+     ═══════════════════════════════════════════════════════════════ -->
+<aside class="sidebar">
+  <!-- Favourites header -->
+  <div class="panel-title">⭐ Favourites</div>
+
+  <!-- Favourite rows are injected here by renderFavList() -->
+  <div id="fav-list">
+    <div class="fav-empty" id="fav-empty">
+      Star a symbol in<br>the ticker bar to<br>add it here.
+    </div>
+  </div>
+
+  <!-- Add symbol form -->
+  <div class="add-panel">
+    <label for="sym-input">Add Symbol</label>
+    <div class="add-row">
+      <!-- Input: user types a ticker (e.g. TSLA, NVDA, BINANCE:ETHUSDT) -->
+      <input id="sym-input" type="text" placeholder="e.g. TSLA" maxlength="20" autocomplete="off"/>
+      <button id="sym-add-btn" title="Subscribe to symbol">+</button>
+    </div>
+    <!-- Status message below the input (success / error / spinner) -->
+    <div id="add-status"></div>
+  </div>
+</aside>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     MAIN — candlestick chart
+     ═══════════════════════════════════════════════════════════════ -->
+<section class="main">
+  <div class="chart-header">
+    <!-- Current symbol name -->
+    <div class="chart-title">
+      <span id="chart-sym-label">—</span>
+      <small style="font-family:var(--mono);font-size:.65rem;color:var(--muted);margin-left:8px;">
+        1 MIN · OHLCV
+      </small>
+    </div>
+    <!-- Live OHLCV stats for the hovered / latest candle -->
+    <div class="ohlcv-bar" id="ohlcv-bar">
+      <span>O<b id="stat-o">—</b></span>
+      <span>H<b id="stat-h">—</b></span>
+      <span>L<b id="stat-l">—</b></span>
+      <span>C<b id="stat-c">—</b></span>
+      <span>V<b id="stat-v">—</b></span>
+    </div>
+  </div>
+
+  <!-- ApexCharts mounts here -->
+  <div id="chart-container">
+    <div id="loading-overlay">
+      <span class="spinner"></span> LOADING HISTORY…
+    </div>
+    <div id="apexchart"></div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     TRADE LOG  — bottom raw-tick feed
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="log-section">
+  <div class="panel-title">TRADE LOG</div>
+  <div class="log-table-wrap" id="log-table-wrap">
+    <div class="log-head">
+      <span>TIME</span>
+      <span>SYMBOL</span>
+      <span style="text-align:right">PRICE</span>
+      <span style="text-align:right">CHG</span>
+      <span style="text-align:right">VOLUME</span>
+    </div>
+    <!-- Log rows are prepended here -->
+  </div>
+</div>
+
+<!-- Toast notification container -->
+<div id="toast-container"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     JAVASCRIPT
+     ═══════════════════════════════════════════════════════════════ -->
+<script>
+// ──────────────────────────────────────────────────────────────────
+//  INITIAL STATE
+//  `initSymbols` is injected by Jinja2 from the Flask route.
+//  e.g. ["AAPL", "AMZN", "BINANCE:BTCUSDT"]
+// ──────────────────────────────────────────────────────────────────
+const initSymbols = {{ symbols | tojson }};
+
+// Maximum number of 1-min candles to keep per symbol in memory.
+// Older candles are dropped from the left of the array.
+const MAX_CANDLES = 500;
+
+// Maximum log rows to display in the trade log.
+const MAX_LOG_ROWS = 60;
+
+// ──────────────────────────────────────────────────────────────────
+//  PER-SYMBOL STATE
+//  history[sym] = {
+//    candles: [ {x: ms, o, h, l, c, v}, … ],  // sorted ascending by time
+//    lastTrade: price,                           // last raw tick price
+//    openPrice: price,                           // first price seen (for % chg)
+//  }
+// ──────────────────────────────────────────────────────────────────
+const history = {};
+
+// Currently displayed symbol
+let activeSymbol = initSymbols[0] || null;
+
+// Favourites: Set of symbol strings, persisted in localStorage
+const FAV_KEY = 'mkt_favourites';
+let favourites = new Set(JSON.parse(localStorage.getItem(FAV_KEY) || '[]'));
+
+// ──────────────────────────────────────────────────────────────────
+//  UTILITIES
+// ──────────────────────────────────────────────────────────────────
+
+/** Convert a symbol string to a valid HTML id fragment (no colons/spaces). */
+function safeId(sym) { return sym.replace(/:/g, '-').replace(/\s/g, '_'); }
+
+/** Format a price with appropriate decimal places. */
+function fmtPrice(p) { return p < 10 ? p.toFixed(4) : p.toFixed(2); }
+
+/** Format a large volume number compactly (e.g. 1 234 567 → "1.2M"). */
+function fmtVol(v) {
+  if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+  if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K';
+  return v.toString();
+}
+
+/** Format a millisecond timestamp as HH:MM:SS. */
+function fmtTime(ms) {
+  return new Date(ms).toLocaleTimeString('en-GB', { hour12: false });
+}
+
+/** Show a brief toast message at top-right. */
+function toast(msg, type = 'ok') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+/** Persist the favourites Set to localStorage. */
+function saveFavourites() {
+  localStorage.setItem(FAV_KEY, JSON.stringify([...favourites]));
+}
+
+// ──────────────────────────────────────────────────────────────────
+//  CLOCK
+// ──────────────────────────────────────────────────────────────────
+function tickClock() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('en-GB', { hour12: false });
+}
+tickClock();
+setInterval(tickClock, 1000);
+
+// ──────────────────────────────────────────────────────────────────
+//  CHART  (ApexCharts candlestick)
+// ──────────────────────────────────────────────────────────────────
+
+/*
+ * ApexCharts candlestick series data format:
+ *   [ { x: <Date|ms>, y: [open, high, low, close] }, … ]
+ *
+ * We store candles internally as:
+ *   { x: ms, o, h, l, c, v }
+ * and convert to ApexCharts format on render.
+ */
+
+const chartOptions = {
+  chart: {
+    id: 'candlestick',
+    type: 'candlestick',
+    height: '100%',
+    background: 'transparent',
+    toolbar: { show: true, tools: { download: false, selection: true, zoom: true, zoomin: true, zoomout: true, pan: true, reset: true } },
+    animations: { enabled: false },    // disable for performance with many candles
+    foreColor: '#637d8f',
+  },
+  // Candlestick colours
+  plotOptions: {
+    candlestick: {
+      colors: { upward: '#26a69a', downward: '#ef5350' },
+      wick: { useFillColor: true },
+    }
+  },
+  xaxis: {
+    type: 'datetime',
+    labels: {
+      style: { fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px', colors: '#637d8f' },
+      datetimeUTC: false,
+    },
+    axisBorder: { color: '#1a2230' },
+    axisTicks:  { color: '#1a2230' },
+  },
+  yaxis: {
+    opposite: true,    // price axis on the right (Bloomberg-style)
+    labels: {
+      style: { fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px', colors: '#637d8f' },
+      formatter: v => fmtPrice(v),
+    },
+  },
+  grid: {
+    borderColor: '#1a2230',
+    strokeDashArray: 3,
+  },
+  tooltip: {
+    theme: 'dark',
+    style: { fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px' },
+    // Custom tooltip showing OHLCV
+    custom({ seriesIndex, dataPointIndex, w }) {
+      const d = w.globals.initialSeries[0].data[dataPointIndex];
+      if (!d) return '';
+      const [o, h, l, c] = d.y;
+      const ts = new Date(d.x).toLocaleString('en-GB', { hour12: false });
+      const col = c >= o ? '#26a69a' : '#ef5350';
+      return `<div style="padding:8px 12px;font-family:var(--mono);font-size:11px;background:#0c0f15;border:1px solid #1a2230">
+        <div style="color:#637d8f;margin-bottom:4px">${ts}</div>
+        <div>O <span style="color:${col}">${fmtPrice(o)}</span></div>
+        <div>H <span style="color:${col}">${fmtPrice(h)}</span></div>
+        <div>L <span style="color:${col}">${fmtPrice(l)}</span></div>
+        <div>C <span style="color:${col}">${fmtPrice(c)}</span></div>
+      </div>`;
+    }
+  },
+  series: [{ name: 'Price', data: [] }],
+  noData: {
+    text: 'Waiting for data…',
+    align: 'center',
+    verticalAlign: 'middle',
+    style: { color: '#3d5063', fontFamily: "'IBM Plex Mono', monospace", fontSize: '13px' },
+  },
+};
+
+// Mount the chart once the DOM is ready
+const chart = new ApexCharts(document.getElementById('apexchart'), chartOptions);
+chart.render();
+
+/**
+ * Re-render the candlestick chart for `activeSymbol`.
+ * Called after receiving new candles or switching symbols.
+ */
+function renderChart() {
+  const h = history[activeSymbol];
+  if (!h) return;
+
+  // Convert internal format → ApexCharts format
+  const series = h.candles.map(c => ({ x: c.x, y: [c.o, c.h, c.l, c.c] }));
+  chart.updateSeries([{ name: activeSymbol, data: series }], false);
+
+  // Update OHLCV stats bar with the latest candle
+  const last = h.candles.at(-1);
+  if (last) {
+    document.getElementById('stat-o').textContent = fmtPrice(last.o);
+    document.getElementById('stat-h').textContent = fmtPrice(last.h);
+    document.getElementById('stat-l').textContent = fmtPrice(last.l);
+    document.getElementById('stat-c').textContent = fmtPrice(last.c);
+    document.getElementById('stat-v').textContent = fmtVol(last.v);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────
+//  TICKER BAR MANAGEMENT
+// ──────────────────────────────────────────────────────────────────
+
+/**
+ * Add (or update) a card in the horizontal ticker bar.
+ * If a card for `sym` already exists, skip creation.
+ */
+function ensureTickerCard(sym) {
+  const id = safeId(sym);
+  if (document.getElementById(`tc-${id}`)) return;  // already exists
+
+  const bar  = document.getElementById('ticker-bar');
+  const card = document.createElement('div');
+  card.className = `tc${sym === activeSymbol ? ' active' : ''}`;
+  card.id = `tc-${id}`;
+  card.dataset.sym = sym;
+  card.innerHTML = `
+    <div class="tc-sym">${sym}</div>
+    <div class="tc-price" id="tcp-${id}">—</div>
+    <div class="tc-chg"   id="tcc-${id}">—</div>
+    <span class="tc-star${favourites.has(sym) ? ' active' : ''}"
+          id="star-${id}"
+          title="Toggle favourite"
+          onclick="toggleFav('${sym}', event)">★</span>`;
+  // Click on the card body (not the star) selects the symbol
+  card.addEventListener('click', () => selectSymbol(sym));
+  bar.appendChild(card);
+}
+
+/**
+ * Switch the active symbol and update chart + header.
+ */
+function selectSymbol(sym) {
+  activeSymbol = sym;
+  document.getElementById('chart-sym-label').textContent = sym;
+
+  // Update active state on all cards
+  document.querySelectorAll('.tc').forEach(c =>
+    c.classList.toggle('active', c.dataset.sym === sym));
+  // Update active state in fav list
+  document.querySelectorAll('.fav-row').forEach(r =>
+    r.classList.toggle('active-fav', r.dataset.sym === sym));
+
+  // Show loading overlay if no candles yet
+  const h = history[sym];
+  const overlay = document.getElementById('loading-overlay');
+  if (!h || h.candles.length === 0) {
+    overlay.classList.remove('hidden');
+  } else {
+    overlay.classList.add('hidden');
+    renderChart();
+  }
+}
+
+/**
+ * Update the price display on a ticker card.
+ * `dir` is "up" or "down" (compared to previous price).
+ */
+function updateTickerCard(sym, price, dir) {
+  const id = safeId(sym);
+  const priceEl = document.getElementById(`tcp-${id}`);
+  const chgEl   = document.getElementById(`tcc-${id}`);
+  if (!priceEl) return;
+
+  priceEl.textContent = fmtPrice(price);
+  priceEl.className   = `tc-price ${dir}`;
+  setTimeout(() => { priceEl.className = 'tc-price'; }, 400);
+
+  // Show % change from open
+  const h = history[sym];
+  if (h && h.openPrice != null) {
+    const pct = ((price - h.openPrice) / h.openPrice * 100).toFixed(2);
+    chgEl.textContent = `${pct >= 0 ? '+' : ''}${pct}%`;
+    chgEl.className   = `tc-chg ${pct >= 0 ? 'up' : 'down'}`;
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────
+//  FAVOURITES
+// ──────────────────────────────────────────────────────────────────
+
+/**
+ * Toggle a symbol in / out of the favourites set.
+ * Stops click propagation so the ticker card isn't also selected.
+ */
+function toggleFav(sym, event) {
+  event.stopPropagation();
+  if (favourites.has(sym)) {
+    favourites.delete(sym);
+  } else {
+    favourites.add(sym);
+  }
+  saveFavourites();
+
+  // Sync star icon
+  const id   = safeId(sym);
+  const star = document.getElementById(`star-${id}`);
+  if (star) star.classList.toggle('active', favourites.has(sym));
+
+  renderFavList();
+}
+
+/**
+ * Rebuild the favourites panel from the current state.
+ * Called on: toggle, new price data for a favourite.
+ */
+function renderFavList() {
+  const container = document.getElementById('fav-list');
+  const empty     = document.getElementById('fav-empty');
+
+  // Remove all existing fav rows (keep the empty placeholder)
+  container.querySelectorAll('.fav-row').forEach(el => el.remove());
+
+  if (favourites.size === 0) {
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+
+  favourites.forEach(sym => {
+    const h    = history[sym];
+    const price = h?.lastTrade;
+    const pct   = (h?.openPrice != null && price != null)
+      ? ((price - h.openPrice) / h.openPrice * 100).toFixed(2)
+      : null;
+    const dir  = pct != null ? (pct >= 0 ? 'up' : 'down') : '';
+
+    const row = document.createElement('div');
+    row.className = `fav-row${sym === activeSymbol ? ' active-fav' : ''}`;
+    row.dataset.sym = sym;
+    row.innerHTML = `
+      <span class="fav-sym">${sym}</span>
+      <div class="fav-right">
+        <div class="fav-price">${price != null ? fmtPrice(price) : '—'}</div>
+        <div class="fav-chg ${dir}">${pct != null ? (pct >= 0 ? '+' : '') + pct + '%' : '—'}</div>
+      </div>`;
+    row.addEventListener('click', () => selectSymbol(sym));
+    // Insert before the empty placeholder
+    container.insertBefore(row, empty);
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────
+//  CANDLE HELPERS
+// ──────────────────────────────────────────────────────────────────
+
+/**
+ * Round a millisecond timestamp down to the start of its 1-min bar.
+ * e.g. 13:47:23 → 13:47:00
+ */
+function barKey(ms) { return Math.floor(ms / 60000) * 60000; }
+
+/**
+ * Insert or merge a candle into history[sym].candles.
+ *
+ * If a candle with the same bar timestamp already exists, update its
+ * high, low, close, and volume (merge). Otherwise append a new candle.
+ * Trim the array to MAX_CANDLES entries.
+ */
+function upsertCandle(sym, candle) {
+  if (!history[sym]) {
+    history[sym] = { candles: [], lastTrade: null, openPrice: null };
+  }
+  const h    = history[sym];
+  const bars = h.candles;
+  const bk   = barKey(candle.x);
+
+  // Search from the end first (most common case: updating the latest bar)
+  let idx = bars.length - 1;
+  while (idx >= 0 && bars[idx].x > bk) idx--;
+
+  if (idx >= 0 && bars[idx].x === bk) {
+    // Existing bar — update OHLCV in-place
+    const b = bars[idx];
+    b.h = Math.max(b.h, candle.h);
+    b.l = Math.min(b.l, candle.l);
+    b.c = candle.c;
+    b.v += candle.v;
+  } else {
+    // New bar — insert at the right position (ascending order)
+    bars.splice(idx + 1, 0, {
+      x: bk, o: candle.o, h: candle.h, l: candle.l, c: candle.c, v: candle.v
+    });
+    if (bars.length > MAX_CANDLES) bars.shift();
+  }
+
+  // Track open price (first price ever seen for % change calculation)
+  if (h.openPrice === null && bars.length > 0) h.openPrice = bars[0].o;
+}
+
+// ──────────────────────────────────────────────────────────────────
+//  SOCKET.IO — event handlers
+// ──────────────────────────────────────────────────────────────────
+const socket = io();
+
+/* Connection established */
+socket.on('connect', () => {
+  document.getElementById('conn-dot').classList.add('live');
+  document.getElementById('conn-label').textContent = 'LIVE';
+});
+
+/* Connection lost */
+socket.on('disconnect', () => {
+  document.getElementById('conn-dot').classList.remove('live');
+  document.getElementById('conn-label').textContent = 'DISCONNECTED';
+});
+
+/**
+ * `candle` event — a completed or in-progress 1-min OHLCV bar.
+ * Emitted in bulk for historical data and individually for live updates.
+ *
+ * Payload: { symbol, time, open, high, low, close, volume }
+ */
+socket.on('history_batch', data => {
+  const sym = data.symbol;
+
+  // Make sure a ticker card exists in the bar for this symbol.
+  // On initial load the cards are pre-created, but if the user
+  // added a new symbol at runtime this might be the first time we see it.
+  ensureTickerCard(sym);
+
+  // Insert every candle from the batch into our in-memory history store.
+  // upsertCandle() handles two cases:
+  //   - a timestamp we haven't seen before → appends a new bar
+  //   - a timestamp we already have       → merges H/L/C/V into the existing bar
+  // We do this in a plain loop WITHOUT calling renderChart() each iteration —
+  // that's the key difference from the old approach which re-rendered the
+  // ApexCharts instance hundreds of times and froze the tab.
+  data.candles.forEach(c => {
+    upsertCandle(sym, {
+      x: c.time,          // milliseconds timestamp (bar key)
+      o: c.open,
+      h: c.high,
+      l: c.low,
+      c: c.close,
+      v: c.volume,
+    });
+  });
+
+  // Now that all candles are loaded, update the ticker card once
+  // using the very last candle as the "current price"
+  const h = history[sym];
+  if (h && h.candles.length > 0) {
+    const last = h.candles.at(-1);   // most recent bar
+
+    // lastTrade drives the price shown on the ticker card
+    h.lastTrade = last.c;
+
+    // openPrice is the baseline for % change calculation.
+    // Only set it if it hasn't been set yet (don't overwrite if live trades
+    // already arrived before the history batch finished)
+    if (h.openPrice === null) h.openPrice = h.candles[0].o;
+
+    updateTickerCard(sym, last.c, 'up');
+  }
+
+  // Render the chart once — now that ALL candles are in memory
+  // This is the single chart update for the entire historical dataset
+  if (sym === activeSymbol) renderChart();
+
+  // Refresh the favourites sidebar if this symbol is starred
+  if (favourites.has(sym)) renderFavList();
+});
+
+/**
+ * `history_done` event — server has finished sending historical candles
+ * for a given symbol. Hide the loading overlay if it's the active symbol.
+ *
+ * Payload: { symbol }
+ */
+socket.on('history_done', data => {
+  if (data.symbol === activeSymbol) {
+    document.getElementById('loading-overlay').classList.add('hidden');
+    renderChart();
+  }
+});
+
+/**
+ * `trade` event — a single raw tick from Finnhub.
+ * We aggregate it into the current 1-min candle client-side.
+ *
+ * Payload: { symbol, price, volume, time }
+ */
+socket.on('trade', data => {
+  const { symbol, price, volume, time } = data;
+  ensureTickerCard(symbol);
+
+  if (!history[symbol]) {
+    history[symbol] = { candles: [], lastTrade: null, openPrice: null };
+  }
+  const h = history[symbol];
+
+  // Merge this tick into the current bar
+  const bk = barKey(time);
+  const bars = h.candles;
+  const lastBar = bars.at(-1);
+
+  if (lastBar && lastBar.x === bk) {
+    // Update existing bar
+    lastBar.h = Math.max(lastBar.h, price);
+    lastBar.l = Math.min(lastBar.l, price);
+    lastBar.c = price;
+    lastBar.v += volume;
+  } else {
+    // Open a new bar
+    bars.push({ x: bk, o: price, h: price, l: price, c: price, v: volume });
+    if (bars.length > MAX_CANDLES) bars.shift();
+  }
+  if (h.openPrice === null && bars.length) h.openPrice = bars[0].o;
+
+  // Update ticker card
+  const prev = h.lastTrade;
+  const dir  = prev == null || price >= prev ? 'up' : 'down';
+  h.lastTrade = price;
+  updateTickerCard(symbol, price, dir);
+
+  if (symbol === activeSymbol) renderChart();
+  if (favourites.has(symbol)) renderFavList();
+
+  // ── Trade log row ──
+  const wrap = document.getElementById('log-table-wrap');
+  const pct  = h.openPrice ? ((price - h.openPrice) / h.openPrice * 100).toFixed(2) : null;
+  const row  = document.createElement('div');
+  row.className = 'log-row';
+  row.innerHTML = `
+    <span class="col-time">${fmtTime(time)}</span>
+    <span class="col-sym">${symbol}</span>
+    <span class="col-price ${dir}">${fmtPrice(price)}</span>
+    <span class="col-chg ${dir}">${pct != null ? (pct >= 0 ? '+' : '') + pct + '%' : '—'}</span>
+    <span class="col-vol">${fmtVol(volume)}</span>`;
+  // Insert after the sticky header
+  wrap.insertBefore(row, wrap.children[1]);
+  if (wrap.children.length > MAX_LOG_ROWS + 1) wrap.removeChild(wrap.lastChild);
+});
+
+/**
+ * `symbol_ack` event — server response to a `subscribe_symbol` request.
+ * Payload: { symbol, ok, error?, already? }
+ */
+socket.on('symbol_ack', data => {
+  const btn    = document.getElementById('sym-add-btn');
+  const status = document.getElementById('add-status');
+  btn.disabled = false;
+
+  if (data.ok) {
+    const msg = data.already
+      ? `${data.symbol} already tracked — history refreshed`
+      : `${data.symbol} added successfully`;
+    status.textContent = msg;
+    status.className   = 'ok';
+    toast(msg, 'ok');
+    // Switch to the newly added symbol
+    selectSymbol(data.symbol);
+  } else {
+    const msg = `Failed: ${data.error || 'unknown error'}`;
+    status.textContent = msg;
+    status.className   = 'err';
+    toast(msg, 'err');
+  }
+
+  // Clear status message after 4 seconds
+  setTimeout(() => { status.textContent = ''; status.className = ''; }, 4000);
+});
+
+// ──────────────────────────────────────────────────────────────────
+//  ADD SYMBOL  — user input → server subscription
+// ──────────────────────────────────────────────────────────────────
+
+function submitSymbol() {
+  const input  = document.getElementById('sym-input');
+  const btn    = document.getElementById('sym-add-btn');
+  const status = document.getElementById('add-status');
+  const sym    = input.value.trim().toUpperCase();
+
+  if (!sym) return;
+
+  // Show loading state
+  btn.disabled  = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  status.textContent = `Requesting ${sym}…`;
+  status.className   = '';
+
+  // Emit subscription request to the server
+  socket.emit('subscribe_symbol', { symbol: sym });
+
+  // Reset button text after 500ms (the ack resets disabled state)
+  setTimeout(() => { btn.innerHTML = '+'; }, 600);
+  input.value = '';
+}
+
+document.getElementById('sym-add-btn').addEventListener('click', submitSymbol);
+document.getElementById('sym-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') submitSymbol();
+});
+
+// ──────────────────────────────────────────────────────────────────
+//  INITIALISE
+//  Create ticker cards for the initial symbol list injected by Flask
+//  and initialise history objects before any events arrive.
+// ──────────────────────────────────────────────────────────────────
+
+initSymbols.forEach(sym => {
+  history[sym] = { candles: [], lastTrade: null, openPrice: null };
+  ensureTickerCard(sym);
+});
+
+// Set the chart title to the first symbol
+if (activeSymbol) {
+  document.getElementById('chart-sym-label').textContent = activeSymbol;
+}
+
+// Render the initial (empty) fav list
+renderFavList();
+</script>
+</body>
+</html>
