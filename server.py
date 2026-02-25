@@ -27,12 +27,13 @@ import json
 import threading
 import time
 from key import apiKey
-import pandas as pd
+import pandas as pd 
 import websocket
 import yfinance as yf
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO
-
+from gevent import monkey
+monkey.patch_all()  # Patch stdlib for gevent compatibility (required for WebSocket support)
 # ── Configuration ──────────────────────────────────────────────────────────────
 
 # Finnhub WebSocket API token
