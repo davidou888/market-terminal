@@ -64,12 +64,19 @@ _finnhub_ws: websocket.WebSocketApp | None = None
 
 # ── Historical data helpers ────────────────────────────────────────────────────
 
+
+#to do: modif name function
 def _yf_ticker(symbol: str) -> str:
     """Convert a Finnhub symbol to a yfinance ticker.
 
     Finnhub uses "BINANCE:BTCUSDT"; yfinance uses "BTC-USD".
     For plain stock tickers the name passes through unchanged.
     """
+# 
+#to do:   CHECK NAME OTHER CRYPTO ??
+#
+
+
     if symbol.startswith("BINANCE:"):
         # e.g. BINANCE:BTCUSDT → BTC-USD
         pair = symbol.split(":")[1]           # "BTCUSDT"
@@ -96,17 +103,18 @@ def emit_historical_candles(symbol: str, target_sid: str | None = None) -> None:
         print(f"[yfinance] No data returned for {yf_sym}")
         return
 
+
+#to do: add enum if closed, bad response etc...
+
+
     # yfinance sometimes returns a MultiIndex on the columns (e.g. ("Close", "AAPL"))
     # We only ever download one ticker at a time, so we flatten it to plain strings
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
     # ── Build the candle list in memory first ──────────────────────────────────
-    # The OLD approach was:  for each row → socketio.emit("candle", ...)
-    # That fired ~400 socket messages per symbol, flooding the browser and
-    # causing it to freeze before the page could even finish rendering.
     #
-    # The NEW approach: loop through all rows, collect them into a plain Python
+    # loop through all rows, collect them into a plain Python
     # list, then send EVERYTHING in a single "history_batch" event.
     # The browser receives one message and processes it all in one go.
     candles = []
@@ -131,6 +139,9 @@ def emit_historical_candles(symbol: str, target_sid: str | None = None) -> None:
     # Wrap the list in a dict so the client knows which symbol it belongs to
     batch = {"symbol": symbol, "candles": candles}
 
+#to do: passage par ref de batch et candles
+
+
     # target_sid is set when sending to one specific browser (on initial connect)
     # If it's None we broadcast to ALL connected clients (when a new symbol is added)
     if target_sid:
@@ -151,11 +162,14 @@ def on_message(ws: websocket.WebSocketApp, message: str) -> None:
 
     # Finnhub keeps the connection alive with ping frames.
     if data.get("type") == "ping":
-        ws.send(json.dumps({"type": "pong"}))
+        ws.send(json.dumps({"type": "pong"})) # :))
         return
 
     if data.get("type") == "trade":
         # Throttle slightly to avoid flooding the client
+        #
+        #to do: time sleep... vraiment ?
+
         time.sleep(0.05)
         for trade in data.get("data", []):
             socketio.emit("trade", {
@@ -206,7 +220,7 @@ def start_finnhub() -> None:
 @socketio.on("connect")
 def on_client_connect(auth=None) -> None:
     """When a browser connects, stream historical candles for every tracked symbol."""
-    #from flask_socketio import request as sio_request  # noqa: PLC0415
+   
     sid = request.sid
     print(f"[Client connected] sid={sid} — sending historical candles…")
 
@@ -232,9 +246,10 @@ def on_subscribe_symbol(payload: dict) -> None:
       - broadcasts historical candles for all clients
       - sends a symbol_ack confirmation
     """
-    #from flask_socketio import request as sio_request  # noqa: PLC0415
+    
     sid = request.sid
 
+    #Cleans the input and rejects empty strings immediately.
     raw_symbol: str = payload.get("symbol", "").strip().upper()
     if not raw_symbol:
         socketio.emit("symbol_ack", {"symbol": raw_symbol, "ok": False,
