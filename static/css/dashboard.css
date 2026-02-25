@@ -1,0 +1,466 @@
+  
+/* ═══════════════════════════════════════════════════════════════
+   CSS CUSTOM PROPERTIES — change these to retheme everything
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --bg:        #07080b;   /* page background */
+  --panel:     #0c0f15;   /* card / panel background */
+  --border:    #1a2230;   /* subtle borders */
+  --accent:    #f0b429;   /* amber — primary accent */
+  --accent2:   #00c9a7;   /* teal — secondary accent */
+  --bull:      #26a69a;   /* candlestick bullish (close > open) */
+  --bear:      #ef5350;   /* candlestick bearish (close < open) */
+  --muted:     #3d5063;   /* de-emphasised text */
+  --text:      #c9d4dc;   /* body text */
+  --text-dim:  #637d8f;   /* secondary text */
+  --mono:      'IBM Plex Mono', monospace;
+  --display:   'Syne', sans-serif;
+  --radius:    6px;
+}
+
+/* ─── Reset ─── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  min-height: 100vh;
+  display: grid;
+  /* Layout: left sidebar | main content */
+  grid-template-rows: auto auto 1fr auto;
+  grid-template-columns: 220px 1fr;
+  grid-template-areas:
+    "header  header"
+    "ticker  ticker"
+    "sidebar main"
+    "log     log";
+  overflow-x: hidden;
+}
+
+/* Subtle scanline texture over everything */
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px, transparent 2px,
+    rgba(0,0,0,.04) 2px, rgba(0,0,0,.04) 3px
+  );
+  pointer-events: none;
+  z-index: 1000;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HEADER
+   ═══════════════════════════════════════════════════════════════ */
+header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.logo {
+  font-family: var(--display);
+  font-size: 1.1rem;
+  letter-spacing: .06em;
+  color: var(--accent);
+  text-shadow: 0 0 20px rgba(240,180,41,.25);
+}
+.logo em { color: var(--muted); font-style: normal; }
+
+/* Connection status indicator */
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: .7rem;
+  color: var(--muted);
+  letter-spacing: .1em;
+}
+#conn-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: background .3s;
+}
+#conn-dot.live {
+  background: var(--bull);
+  box-shadow: 0 0 0 0 rgba(38,166,154,.6);
+  animation: blink 2s infinite;
+}
+@keyframes blink {
+  0%   { box-shadow: 0 0 0 0   rgba(38,166,154,.6); }
+  70%  { box-shadow: 0 0 0 8px rgba(38,166,154,0);  }
+  100% { box-shadow: 0 0 0 0   rgba(38,166,154,0);  }
+}
+
+/* Clock in header */
+#clock {
+  font-size: .72rem;
+  color: var(--text-dim);
+  letter-spacing: .08em;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TICKER BAR  — horizontal scrollable row of symbol cards
+   ═══════════════════════════════════════════════════════════════ */
+.ticker-bar {
+  grid-area: ticker;
+  display: flex;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  scrollbar-width: none;
+}
+.ticker-bar::-webkit-scrollbar { display: none; }
+
+/* Each symbol card in the ticker bar */
+.tc {
+  flex: 0 0 auto;
+  padding: 10px 20px;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  position: relative;
+  transition: background .15s;
+  min-width: 130px;
+}
+.tc:hover { background: rgba(240,180,41,.04); }
+.tc.active { background: rgba(240,180,41,.07); }
+.tc.active::after {
+  content: '';
+  position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.tc-sym  { font-size: .62rem; color: var(--muted); letter-spacing: .12em; margin-bottom: 3px; }
+.tc-price {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--text);
+  transition: color .3s;
+}
+.tc-price.up   { color: var(--bull); }
+.tc-price.down { color: var(--bear); }
+.tc-chg        { font-size: .68rem; color: var(--text-dim); margin-top: 1px; }
+.tc-chg.up     { color: var(--bull); }
+.tc-chg.down   { color: var(--bear); }
+
+/* Star / favourite button on each card */
+.tc-star {
+  position: absolute;
+  top: 8px; right: 8px;
+  font-size: .8rem;
+  cursor: pointer;
+  opacity: .3;
+  transition: opacity .2s, transform .2s;
+  user-select: none;
+  line-height: 1;
+}
+.tc-star.active { opacity: 1; }
+.tc-star:hover  { transform: scale(1.25); }
+
+/* ═══════════════════════════════════════════════════════════════
+   SIDEBAR  — favourites list + add-symbol panel
+   ═══════════════════════════════════════════════════════════════ */
+.sidebar {
+  grid-area: sidebar;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+}
+
+.panel-title {
+  font-size: .6rem;
+  letter-spacing: .15em;
+  color: var(--muted);
+  padding: 12px 16px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  text-transform: uppercase;
+}
+
+/* ── Favourites panel ── */
+#fav-list {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--panel);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* A single favourite row */
+.fav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 16px;
+  border-bottom: 1px solid rgba(26,34,48,.7);
+  cursor: pointer;
+  transition: background .12s;
+}
+.fav-row:hover { background: rgba(240,180,41,.04); }
+.fav-row.active-fav { background: rgba(240,180,41,.07); }
+
+.fav-sym   { font-size: .72rem; color: var(--accent); }
+.fav-right { text-align: right; }
+.fav-price { font-size: .78rem; }
+.fav-chg   { font-size: .65rem; color: var(--text-dim); }
+.fav-chg.up   { color: var(--bull); }
+.fav-chg.down { color: var(--bear); }
+
+.fav-empty {
+  padding: 24px 16px;
+  color: var(--muted);
+  font-size: .7rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
+/* ── Add symbol panel ── */
+.add-panel {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  padding: 12px;
+}
+
+.add-panel label {
+  display: block;
+  font-size: .6rem;
+  letter-spacing: .12em;
+  color: var(--muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.add-row {
+  display: flex;
+  gap: 6px;
+}
+
+/* Text input for ticker symbol */
+#sym-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: .8rem;
+  padding: 7px 10px;
+  outline: none;
+  text-transform: uppercase;
+  transition: border-color .2s;
+}
+#sym-input:focus { border-color: var(--accent); }
+#sym-input::placeholder { color: var(--muted); }
+
+/* Add button */
+#sym-add-btn {
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: #000;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: .8rem;
+  font-weight: 500;
+  padding: 7px 12px;
+  transition: opacity .2s;
+}
+#sym-add-btn:hover    { opacity: .85; }
+#sym-add-btn:disabled { opacity: .4; cursor: default; }
+
+/* Loading spinner (shown while server validates the symbol) */
+.spinner {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border: 2px solid rgba(255,255,255,.2);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#add-status {
+  margin-top: 6px;
+  font-size: .65rem;
+  min-height: 14px;
+  color: var(--text-dim);
+}
+#add-status.ok  { color: var(--bull); }
+#add-status.err { color: var(--bear); }
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN  — chart area
+   ═══════════════════════════════════════════════════════════════ */
+.main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.chart-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.chart-title {
+  font-family: var(--display);
+  font-size: .9rem;
+  color: var(--text);
+  letter-spacing: .06em;
+}
+.chart-title span { color: var(--accent); }
+
+/* OHLCV stats row above the chart */
+.ohlcv-bar {
+  display: flex;
+  gap: 20px;
+  font-size: .65rem;
+  color: var(--text-dim);
+  flex-wrap: wrap;
+}
+.ohlcv-bar b { color: var(--text); font-weight: 400; margin-left: 3px; }
+
+/* The chart container — ApexCharts fills this div */
+#chart-container {
+  flex: 1;
+  min-height: 340px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 12px 4px 4px;
+  position: relative;
+}
+
+/* Overlay shown while historical data is loading */
+#loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(12,15,21,.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  font-size: .75rem;
+  color: var(--muted);
+  letter-spacing: .1em;
+  z-index: 10;
+  gap: 10px;
+  transition: opacity .3s;
+}
+#loading-overlay.hidden { opacity: 0; pointer-events: none; }
+
+/* ═══════════════════════════════════════════════════════════════
+   TRADE LOG  — scrolling tick feed at the bottom
+   ═══════════════════════════════════════════════════════════════ */
+.log-section {
+  grid-area: log;
+  height: 180px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+}
+
+.log-table-wrap {
+  overflow-y: auto;
+  flex: 1;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* Fixed header row */
+.log-head, .log-row {
+  display: grid;
+  grid-template-columns: 90px 130px 1fr 110px 90px;
+  padding: 6px 20px;
+  font-size: .68rem;
+}
+.log-head {
+  font-size: .6rem;
+  letter-spacing: .1em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0;
+  background: var(--panel);
+  z-index: 1;
+  text-transform: uppercase;
+}
+.log-row {
+  border-bottom: 1px solid rgba(26,34,48,.5);
+  animation: fadeIn .18s ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: none; }
+}
+.col-time  { color: var(--muted); }
+.col-sym   { color: var(--accent2); }
+.col-price { text-align: right; }
+.col-price.up   { color: var(--bull); }
+.col-price.down { color: var(--bear); }
+.col-chg   { text-align: right; font-size: .65rem; }
+.col-chg.up   { color: var(--bull); }
+.col-chg.down { color: var(--bear); }
+.col-vol   { text-align: right; color: var(--muted); }
+
+/* ═══════════════════════════════════════════════════════════════
+   TOAST NOTIFICATIONS
+   ═══════════════════════════════════════════════════════════════ */
+#toast-container {
+  position: fixed;
+  top: 20px; right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-size: .72rem;
+  color: var(--text);
+  opacity: 0;
+  transform: translateX(20px);
+  animation: toastIn .25s forwards, toastOut .3s 2.5s forwards;
+  max-width: 260px;
+}
+.toast.ok  { border-left: 3px solid var(--bull); }
+.toast.err { border-left: 3px solid var(--bear); }
+@keyframes toastIn  { to   { opacity: 1; transform: none; } }
+@keyframes toastOut { from { opacity: 1; } to { opacity: 0; } }
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE TWEAKS
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 700px) {
+  body {
+    grid-template-areas:
+      "header  header"
+      "ticker  ticker"
+      "main    main"
+      "sidebar sidebar"
+      "log     log";
+    grid-template-columns: 1fr;
+  }
+  .sidebar { border-right: none; border-top: 1px solid var(--border); }
+  .log-head, .log-row { grid-template-columns: 80px 100px 1fr 90px; }
+  .col-chg { display: none; }
+}
