@@ -153,6 +153,10 @@ const chartOptions = {
   },
 };
 
+//to do: work on zoom cf: https://apexcharts.com/docs/options/chart/zoom/
+
+
+
 // Mount the chart once the DOM is ready
 const chart = new ApexCharts(document.getElementById('apexchart'), chartOptions);
 chart.render();
