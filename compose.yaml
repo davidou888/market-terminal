@@ -8,6 +8,10 @@
 # database or a cache. For examples, see the Awesome Compose repository:
 # https://github.com/docker/awesome-compose
 services:
+  app:
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
   server:
     build:
       context: .

@@ -70,30 +70,29 @@ _finnhub_ws: websocket.WebSocketApp | None = None
 # ── Historical data helpers ────────────────────────────────────────────────────
 
 
-#to do: modif name function
-def _yf_ticker(symbol: str) -> str:
+
+def _to_yf_ticker(symbol: str) -> str:
     """Convert a Finnhub symbol to a yfinance ticker.
 
     Finnhub uses "BINANCE:BTCUSDT"; yfinance uses "BTC-USD".
     For plain stock tickers the name passes through unchanged.
     """
-# 
-#to do:   CHECK NAME OTHER CRYPTO ??
-#
-
-
-    if symbol.startswith("BINANCE:"):
-        # e.g. BINANCE:BTCUSDT → BTC-USD
-        pair = symbol.split(":")[1]           # "BTCUSDT"
-        base = pair.replace("USDT", "")       # "BTC"
+    if ":" in symbol:
+        #parse the exchange and pair from the symbol, then convert to yfinance format
+        print(f"[yfinance] Detected crypto symbol {symbol}")
+        print(f"[yfinance] Converting {symbol} to yfinance format…")
+        exchange_code = symbol.split(":")[0]
+        pair = symbol.split(":")[1]          
+        base = pair.replace("USDT", "") 
         return f"{base}-USD"
-    return symbol
-
+        return symbol
+    else:
+        return symbol
 
 def emit_historical_candles(symbol: str, target_sid: str | None = None) -> None:
     # Convert Finnhub symbol format to yfinance format
     # e.g. "BINANCE:BTCUSDT" → "BTC-USD", plain stocks pass through unchanged
-    yf_sym = _yf_ticker(symbol)
+    yf_sym = _to_yf_ticker(symbol)
 
     # Download OHLCV bars from Yahoo Finance
     # HISTORY_PERIOD and HISTORY_INTERVAL are set at the top of the file (e.g. "5d", "1m")
@@ -284,7 +283,7 @@ def on_subscribe_symbol(payload: dict) -> None:
         return
 
     # Validate via yfinance before committing
-    yf_sym = _yf_ticker(raw_symbol)
+    yf_sym = _to_yf_ticker(raw_symbol)
     try:
         test = yf.download(yf_sym, period="1d", interval="1m", progress=False)
         if test.empty:
