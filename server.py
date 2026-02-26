@@ -33,6 +33,11 @@ import yfinance as yf
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO
 from gevent import monkey
+from gevent.threadpool import ThreadPool
+
+#added a thread pool for yfinance calls to avoid blocking the main event loop, especially when multiple clients connect at once and request historical data for several symbols. 
+#The thread pool allows us to run multiple yfinance downloads in parallel without freezing the server.
+_thread_pool = ThreadPool(4)
 monkey.patch_all()  # Patch stdlib for gevent compatibility (required for WebSocket support)
 # ── Configuration ──────────────────────────────────────────────────────────────
 
@@ -93,7 +98,14 @@ def emit_historical_candles(symbol: str, target_sid: str | None = None) -> None:
     # Download OHLCV bars from Yahoo Finance
     # HISTORY_PERIOD and HISTORY_INTERVAL are set at the top of the file (e.g. "5d", "1m")
     try:
-        df = yf.download(yf_sym, period=HISTORY_PERIOD, interval=HISTORY_INTERVAL, progress=False)
+        # new threaded version of the yfinance download to avoid blocking the main event loop.
+        df = _thread_pool.spawn(
+            yf.download, 
+            yf_sym, 
+            period=HISTORY_PERIOD, 
+            interval=HISTORY_INTERVAL, 
+            progress=False
+            ).get()
     except Exception as exc:
         print(f"[yfinance] Failed to download {yf_sym}: {exc}")
         return
@@ -232,7 +244,8 @@ def on_client_connect(auth=None) -> None:
         for sym in symbols_snapshot:
             emit_historical_candles(sym, target_sid=sid)
 
-    threading.Thread(target=_send_history, daemon=True).start()
+    socketio.start_background_task(target=_send_history, daemon=True).start() 
+    #fixed a bug where the background task was not marked as daemon, which could cause the server to hang on shutdown if a client was connected and receiving historical data.
 
 
 @socketio.on("subscribe_symbol")
