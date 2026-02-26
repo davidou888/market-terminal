@@ -16,9 +16,9 @@ services:
     user: root
     environment:
       DB_HOST: db
-      DB_USER: root
-      DB_PASSWORD: my-secret-pw
-      DB_NAME: my_database
+      DB_USER: ${DB_USER}
+      DB_PASSWORD:  ${MYSQL_ROOT_PASSWORD}
+      DB_NAME:  ${MYSQL_DATABASE}
     ports:
       - "8000:8000"
     depends_on:
