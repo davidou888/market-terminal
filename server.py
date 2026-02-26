@@ -309,6 +309,12 @@ def index():
     """Render the main dashboard, injecting the initial symbol list."""
     return render_template("dashboard.html", symbols=list(_active_symbols))
 
+# This route allows the client-side JavaScript to send log messages that will appear in the server console, which is useful for debugging client-side code in environments where you don't have easy
+@app.route('/log', methods=['POST'])
+def client_log():
+    data = request.get_json()
+    print(f"[CLIENT] {data.get('message')}", flush=True)
+    return '', 204
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
@@ -317,5 +323,6 @@ if __name__ == "__main__":
     thread = threading.Thread(target=start_finnhub, daemon=True)
     thread.start()
 
-    # Run Flask-SocketIO (eventlet or threading mode)
+    # Run Flask-SocketIO (eventlet or threading mode) 
+    # !Always run the local server on 8000 port, not 5000, to avoid conflicts with the Finnhub WS thread!
     socketio.run(app, host="0.0.0.0", port=8000, debug=False)
