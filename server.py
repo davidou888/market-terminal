@@ -23,6 +23,10 @@ Socket events (client → server)
 Dependencies:  flask, flask-socketio, websocket-client, yfinance, pandas
 """
 
+from gevent import monkey
+monkey.patch_all()  # Patch stdlib for gevent compatibility (required for WebSocket support)
+
+
 import json
 import threading
 import time
@@ -48,7 +52,7 @@ API_TOKEN = apiKey()
 # Stocks use plain tickers ("AAPL"); crypto uses "EXCHANGE:PAIR" ("BINANCE:BTCUSDT").
 SYMBOLS = ["AAPL", "AMZN", "BINANCE:BTCUSDT"]
 
-# How many days of 1-min history to load for each symbol when it is first shown.
+# How many days of x-min history to load for each symbol when it is first shown.
 HISTORY_PERIOD = "5d"
 HISTORY_INTERVAL = "1m"
 
@@ -171,7 +175,7 @@ def emit_historical_candles(symbol: str, target_sid: str | None = None) -> None:
 def on_message(ws: websocket.WebSocketApp, message: str) -> None:
     """Handle incoming messages from Finnhub."""
     data = json.loads(message)
-
+    print("message")
     # Finnhub keeps the connection alive with ping frames.
     if data.get("type") == "ping":
         ws.send(json.dumps({"type": "pong"})) # :))
@@ -181,7 +185,7 @@ def on_message(ws: websocket.WebSocketApp, message: str) -> None:
         # Throttle slightly to avoid flooding the client
         #
         #to do: time sleep... vraiment ?
-
+        print("trade")
         time.sleep(0.05)
         for trade in data.get("data", []):
             socketio.emit("trade", {
@@ -211,9 +215,10 @@ def on_open(ws: websocket.WebSocketApp) -> None:
         for symbol in _active_symbols:
             ws.send(json.dumps({"type": "subscribe", "symbol": symbol}))
 
-
+_finnhub_started = False
 def start_finnhub() -> None:
     """Run the Finnhub WebSocket in a background thread; auto-reconnects on failure."""
+    print("[Finnhub] Thread started")
     while True:
         ws = websocket.WebSocketApp(
             f"wss://ws.finnhub.io?token={API_TOKEN}",
@@ -233,6 +238,12 @@ def start_finnhub() -> None:
 def on_client_connect(auth=None) -> None:
     """When a browser connects, stream historical candles for every tracked symbol."""
    
+    global _finnhub_started
+    if not _finnhub_started:
+        _finnhub_started = True
+        socketio.start_background_task(start_finnhub)
+
+
     sid = request.sid
     print(f"[Client connected] sid={sid} — sending historical candles…")
 
@@ -333,8 +344,8 @@ def client_log():
 
 if __name__ == "__main__":
     # Start the Finnhub WebSocket listener in a daemon thread
-    thread = threading.Thread(target=start_finnhub, daemon=True)
-    thread.start()
+   # thread = threading.Thread(target=start_finnhub, daemon=True)
+   # thread.start()
 
     # Run Flask-SocketIO (eventlet or threading mode) 
     # !Always run the local server on 8000 port, not 5000, to avoid conflicts with the Finnhub WS thread!
