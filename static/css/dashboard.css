@@ -30,12 +30,12 @@ body {
   display: grid;
   /* Layout: left sidebar | main content */
   grid-template-rows: auto auto 1fr auto;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 220px 1fr 60px;
   grid-template-areas:
-    "header  header"
-    "ticker  ticker"
-    "sidebar main"
-    "log     log";
+    "header  header  header"
+    "ticker  ticker  ticker"
+    "sidebar main    sidebar-right"
+    "log     log     log";
   overflow-x: hidden;
 }
 
@@ -466,13 +466,13 @@ header {
    ═══════════════════════════════════════════════════════════════ */
 @media (max-width: 700px) {
   body {
+    grid-template-columns: 220px 1fr;
     grid-template-areas:
       "header  header"
       "ticker  ticker"
-      "main    main"
-      "sidebar sidebar"
+      "sidebar main"
       "log     log";
-    grid-template-columns: 1fr;
+
   }
   .sidebar { border-right: none; border-top: 1px solid var(--border); }
   .log-head, .log-row { grid-template-columns: 80px 100px 1fr 90px; }
