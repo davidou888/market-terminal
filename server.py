@@ -38,11 +38,23 @@ from flask import Flask, render_template, request
 from flask_socketio import SocketIO
 from gevent import monkey
 from gevent.threadpool import ThreadPool
+import os
+import pickle
+from datetime import datetime, timedelta
+
+# Dossier où stocker les fichiers cache (un fichier .pkl par symbol)
+CACHE_DIR = "/tmp/market_cache"
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+# Durée de validité du cache (au-delà, on re-fetch yfinance)
+CACHE_TTL_HOURS = 4
+
+# Nombre maximum de candles à garder par symbol en mémoire serveur
+MAX_CANDLES_SERVER = 4000
 
 #added a thread pool for yfinance calls to avoid blocking the main event loop, especially when multiple clients connect at once and request historical data for several symbols. 
 #The thread pool allows us to run multiple yfinance downloads in parallel without freezing the server.
 _thread_pool = ThreadPool(4)
-monkey.patch_all()  # Patch stdlib for gevent compatibility (required for WebSocket support)
 # ── Configuration ──────────────────────────────────────────────────────────────
 
 # Finnhub WebSocket API token
@@ -53,8 +65,11 @@ API_TOKEN = apiKey()
 SYMBOLS = ["AAPL", "AMZN", "BINANCE:BTCUSDT"]
 
 # How many days of x-min history to load for each symbol when it is first shown.
-HISTORY_PERIOD = "5d"
-HISTORY_INTERVAL = "1m"
+HISTORY_PERIOD = "1y"
+HISTORY_INTERVAL = "1d"
+
+BATCH_SIZE = 400  # Number of candles to send in each "history_batch" message (tune for performance vs. UI responsiveness)
+
 
 # ── App setup ──────────────────────────────────────────────────────────────────
 
@@ -91,81 +106,147 @@ def _to_yf_ticker(symbol: str) -> str:
         return f"{base}-USD"
         return symbol
     else:
+        print(f"[yfinance] Detected stock symbol {symbol}")
         return symbol
+def _cache_path(symbol: str) -> str:
+    safe = symbol.replace(":", "_")
+    return os.path.join(CACHE_DIR, f"{safe}.pkl")
 
-def emit_historical_candles(symbol: str, target_sid: str | None = None) -> None:
+def _load_cache(symbol: str) -> list | None:
+    """Charge le cache d'un symbol. Retourne None si absent ou expiré."""
+    path = _cache_path(symbol)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "rb") as f:
+            data = pickle.load(f)
+        # Vérifie la fraîcheur
+        if datetime.now() - data["saved_at"] > timedelta(hours=CACHE_TTL_HOURS):
+            print(f"[cache] Expired for {symbol}")
+            return None
+        print(f"[cache] Hit for {symbol} — {len(data['candles'])} candles")
+        return data["candles"]
+    except Exception as e:
+        print(f"[cache] Load error for {symbol}: {e}")
+        return None
+
+def _save_cache(symbol: str, candles: list) -> None:
+    """Sauvegarde la liste de candles sur disque."""
+    # Garde seulement les MAX_CANDLES_SERVER plus récentes
+    candles = candles[-MAX_CANDLES_SERVER:]
+    try:
+        with open(_cache_path(symbol), "wb") as f:
+            pickle.dump({"saved_at": datetime.now(), "candles": candles}, f)
+        print(f"[cache] Saved {len(candles)} candles for {symbol}")
+    except Exception as e:
+        print(f"[cache] Save error for {symbol}: {e}")
+
+def _append_candle(symbol: str, candle: dict) -> None:
+    """
+    Ajoute une candle live au cache disque de façon FIFO :
+    si on dépasse MAX_CANDLES_SERVER, la plus vieille est supprimée.
+    Appelé à chaque trade reçu de Finnhub.
+    """
+    cached = _load_cache(symbol)
+    if cached is None:
+        return  # Pas de cache existant, on ne crée pas depuis des ticks live
+    
+    # Cherche si la candle (même timestamp) existe déjà → update
+    bk = (candle["time"] // 60000) * 60000  # arrondi à la minute
+    for i, c in enumerate(cached):
+        if c["time"] == bk:
+            cached[i]["high"]   = max(cached[i]["high"],  candle["price"])
+            cached[i]["low"]    = min(cached[i]["low"],   candle["price"])
+            cached[i]["close"]  = candle["price"]
+            cached[i]["volume"] += candle["volume"]
+            _save_cache(symbol, cached)
+            return
+    
+    # Nouvelle candle : append + trim FIFO
+    cached.append({
+        "time":   bk,
+        "open":   candle["price"],
+        "high":   candle["price"],
+        "low":    candle["price"],
+        "close":  candle["price"],
+        "volume": candle["volume"],
+    })
+    _save_cache(symbol, cached)  # _save_cache tronque à MAX_CANDLES_SERVER
+
+def emit_historical_candles(symbol: str, target_sid: str | None = None,
+                            period: str = HISTORY_PERIOD, 
+                            interval: str = HISTORY_INTERVAL) -> None:
     # Convert Finnhub symbol format to yfinance format
     # e.g. "BINANCE:BTCUSDT" → "BTC-USD", plain stocks pass through unchanged
     yf_sym = _to_yf_ticker(symbol)
 
     # Download OHLCV bars from Yahoo Finance
     # HISTORY_PERIOD and HISTORY_INTERVAL are set at the top of the file (e.g. "5d", "1m")
-    try:
-        # new threaded version of the yfinance download to avoid blocking the main event loop.
-        df = _thread_pool.spawn(
-            yf.download, 
-            yf_sym, 
-            period=HISTORY_PERIOD, 
-            interval=HISTORY_INTERVAL, 
-            progress=False
+    candles = _load_cache(symbol)
+
+    if candles is None:
+        # Cache absent ou expiré → fetch yfinance
+        try:
+            df = _thread_pool.spawn(
+                yf.download,
+                yf_sym,
+                period=period,
+                interval=interval,
+                progress=False
             ).get()
-    except Exception as exc:
-        print(f"[yfinance] Failed to download {yf_sym}: {exc}")
-        return
+        except Exception as exc:
+            print(f"[yfinance] Failed to download {yf_sym}: {exc}")
+            return
 
-    # Nothing came back (market closed, bad ticker, etc.) — bail out silently
-    if df.empty:
-        print(f"[yfinance] No data returned for {yf_sym}")
-        return
+        if df.empty:
+            print(f"[yfinance] No data returned for {yf_sym}")
+            return
 
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df = df.reset_index()
+        time_col = "Datetime" if "Datetime" in df.columns else "Date"
 
-#to do: add enum if closed, bad response etc...
+        candles = []
+        for _, row in df.iterrows():
+            candles.append({
+                "time":   int(pd.Timestamp(row[time_col]).timestamp() * 1000),
+                "open":   float(row["Open"]),
+                "high":   float(row["High"]),
+                "low":    float(row["Low"]),
+                "close":  float(row["Close"]),
+                "volume": int(row["Volume"]),
+            })
 
+        # Sauvegarde dans le cache (trimé à MAX_CANDLES_SERVER)
+        _save_cache(symbol, candles)
+        candles = candles[-MAX_CANDLES_SERVER:]
 
-    # yfinance sometimes returns a MultiIndex on the columns (e.g. ("Close", "AAPL"))
-    # We only ever download one ticker at a time, so we flatten it to plain strings
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-
-    # ── Build the candle list in memory first ──────────────────────────────────
-    #
-    # loop through all rows, collect them into a plain Python
-    # list, then send EVERYTHING in a single "history_batch" event.
-    # The browser receives one message and processes it all in one go.
-    candles = []
-    for timestamp, row in df.iterrows():
-        candles.append({
-            # Milliseconds since epoch — same unit Finnhub uses for live trades,
-            # so the chart x-axis stays consistent between history and live data
-            "time":   int(timestamp.timestamp() * 1000),
-
-            # OHLCV values — .get() with a fallback to Close handles any rare
-            # rows where Open/High/Low are missing (e.g. pre-market stubs)
-            "open":   float(row.get("Open",  row.get("Close", 0))),
-            "high":   float(row.get("High",  row.get("Close", 0))),
-            "low":    float(row.get("Low",   row.get("Close", 0))),
-            "close":  float(row.get("Close", 0)),
-            "volume": int(row.get("Volume", 0)),
-        })
-
-    print(f"[yfinance] Sending batch of {len(candles)} candles for {symbol}")
-
+    print(f"[history] Sending {len(candles)} candles for {symbol}")
     # ── Send the batch ─────────────────────────────────────────────────────────
     # Wrap the list in a dict so the client knows which symbol it belongs to
     batch = {"symbol": symbol, "candles": candles}
 
 #to do: passage par ref de batch et candles
 
+    for i in range(0, len(candles), BATCH_SIZE):
+          # Send in batches of 100 candles to avoid overwhelming the client
+        chunk = candles[i:i+BATCH_SIZE]
+        batch = {"symbol": symbol, "candles": chunk}
+        if target_sid:
+            socketio.emit("history_batch", batch, to=target_sid)
+            print(f"[history] Sent batch of {len(chunk)} candles for {symbol} to sid={target_sid}") 
+        else:
+            socketio.emit("history_batch", batch)
+            print(f"[history] Broadcasted batch of {len(chunk)} candles for {symbol} to all clients")
+        socketio.sleep(0)  # Yield to the event loop to keep the server responsive
 
     # target_sid is set when sending to one specific browser (on initial connect)
     # If it's None we broadcast to ALL connected clients (when a new symbol is added)
+
     if target_sid:
-        socketio.emit("history_batch", batch, to=target_sid)
-        # history_done tells the browser "no more candles coming for this symbol"
-        # so it can hide the loading spinner and render the chart
         socketio.emit("history_done", {"symbol": symbol}, to=target_sid)
     else:
-        socketio.emit("history_batch", batch)
         socketio.emit("history_done", {"symbol": symbol})
 
 
@@ -174,7 +255,6 @@ def emit_historical_candles(symbol: str, target_sid: str | None = None) -> None:
 def on_message(ws: websocket.WebSocketApp, message: str) -> None:
     """Handle incoming messages from Finnhub."""
     data = json.loads(message)
-    print("message")
     # Finnhub keeps the connection alive with ping frames.
     if data.get("type") == "ping":
         ws.send(json.dumps({"type": "pong"})) # :))
@@ -184,11 +264,16 @@ def on_message(ws: websocket.WebSocketApp, message: str) -> None:
         # Throttle slightly to avoid flooding the client
         #
         #to do: time sleep... vraiment ?
-        print("trade")
-        time.sleep(0.05)
+        #time.sleep(2)
         for trade in data.get("data", []):
             socketio.emit("trade", {
                 "symbol": trade["s"],
+                "price":  trade["p"],
+                "volume": trade["v"],
+                "time":   trade["t"],
+            })
+        # Met à jour le cache disque avec la nouvelle candle (FIFO)
+            _append_candle(trade["s"], {
                 "price":  trade["p"],
                 "volume": trade["v"],
                 "time":   trade["t"],
@@ -218,6 +303,7 @@ _finnhub_started = False
 def start_finnhub() -> None:
     """Run the Finnhub WebSocket in a background thread; auto-reconnects on failure."""
     print("[Finnhub] Thread started")
+    delay = 5
     while True:
         ws = websocket.WebSocketApp(
             f"wss://ws.finnhub.io?token={API_TOKEN}",
@@ -228,7 +314,7 @@ def start_finnhub() -> None:
         )
         ws.run_forever(ping_interval=30, ping_timeout=10)
         print("[Finnhub] Reconnecting in 5 s…")
-        time.sleep(5)
+        time.sleep(delay)
 
 
 # ── SocketIO event handlers ────────────────────────────────────────────────────
@@ -254,7 +340,7 @@ def on_client_connect(auth=None) -> None:
         for sym in symbols_snapshot:
             emit_historical_candles(sym, target_sid=sid)
 
-    socketio.start_background_task(target=_send_history, daemon=True).start() 
+    socketio.start_background_task(_send_history)
     #fixed a bug where the background task was not marked as daemon, which could cause the server to hang on shutdown if a client was connected and receiving historical data.
 
 
@@ -323,7 +409,6 @@ def on_subscribe_symbol(payload: dict) -> None:
 
     socketio.emit("symbol_ack", {"symbol": raw_symbol, "ok": True}, to=sid)
     print(f"[subscribe_symbol] Added {raw_symbol}")
-
 
 # ── Flask routes ───────────────────────────────────────────────────────────────
 

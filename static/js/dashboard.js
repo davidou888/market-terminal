@@ -100,105 +100,38 @@ printTimeZone();
 setInterval(tickClock, 10);
 
 // ──────────────────────────────────────────────────────────────────
-//  CHART  (ApexCharts candlestick)
+//  CHART  (Chart.js candlestick)
 // ──────────────────────────────────────────────────────────────────
+/*initialize qfchart*/
+const qfChart = new QFChart.QFChart(document.getElementById('qf-mount'), {
+  backgroundColor: '#0c0f15',
+  upColor:   '#26a69a',
+  downColor: '#ef5350',
+  fontColor: '#637d8f',
+  fontFamily: 'IBM Plex Mono, monospace',
+  watermark: false,
+  dataZoom: { visible: true, position: 'bottom', height: 6 },
+});
+/** Convert our internal {x,o,h,l,c,v} candle to QFChart's format. */
+function toQFBar(c) {
+  return { time: c.x, open: c.o, high: c.h, low: c.l, close: c.c, volume: c.v };
+}
 
-/*
- * ApexCharts candlestick series data format:
- *   [ { x: <Date|ms>, y: [open, high, low, close] }, … ]
- *
- * We store candles internally as:
- *   { x: ms, o, h, l, c, v }
- * and convert to ApexCharts format on render.
- */
+const chartContainer = document.getElementById('chart-container');
 
-const chartOptions = {
-  chart: {
-    id: 'candlestick',
-    type: 'candlestick',
-    height: '100%',
-    background: 'transparent',
-    toolbar: { show: true, tools: { download: false, selection: true, zoom: true, zoomin: true, zoomout: true, pan: true, reset: true } },
-    animations: { enabled: false },    // disable for performance with many candles
-    foreColor: '#637d8f',
-  },
-  // Candlestick colours
-  plotOptions: {
-    candlestick: {
-      colors: { upward: '#26a69a', downward: '#ef5350' },
-      wick: { useFillColor: true },
-    }
-  },
-  xaxis: {
-    type: 'datetime',
-    labels: {
-      style: { fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px', colors: '#637d8f' },
-      datetimeUTC: false,
-    },
-    axisBorder: { color: '#1a2230' },
-    axisTicks:  { color: '#1a2230' },
-  },
-  yaxis: {
-    opposite: true,    // price axis on the right (Bloomberg-style)
-    labels: {
-      style: { fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px', colors: '#637d8f' },
-      formatter: v => fmtPrice(v),
-    },
-  },
-  grid: {
-    borderColor: '#1a2230',
-    strokeDashArray: 3,
-  },
-  tooltip: {
-    theme: 'dark',
-    style: { fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px' },
-    // Custom tooltip showing OHLCV
-    custom({ seriesIndex, dataPointIndex, w }) {
-      const d = w.globals.initialSeries[0].data[dataPointIndex];
-      if (!d) return '';
-      const [o, h, l, c] = d.y;
-      const ts = new Date(d.x).toLocaleString('en-GB', { hour12: false });
-      const col = c >= o ? '#26a69a' : '#ef5350';
-      return `<div style="padding:8px 12px;font-family:var(--mono);font-size:11px;background:#0c0f15;border:1px solid #1a2230">
-        <div style="color:#637d8f;margin-bottom:4px">${ts}</div>
-        <div>O <span style="color:${col}">${fmtPrice(o)}</span></div>
-        <div>H <span style="color:${col}">${fmtPrice(h)}</span></div>
-        <div>L <span style="color:${col}">${fmtPrice(l)}</span></div>
-        <div>C <span style="color:${col}">${fmtPrice(c)}</span></div>
-      </div>`;
-    }
-  },
-  series: [{ name: 'Price', data: [] }],
-  noData: {
-    text: 'Waiting for data…',
-    align: 'center',
-    verticalAlign: 'middle',
-    style: { color: '#3d5063', fontFamily: "'IBM Plex Mono', monospace", fontSize: '13px' },
-  },
-};
-
-//to do: work on zoom cf: https://apexcharts.com/docs/options/chart/zoom/
-
-
-
-// Mount the chart once the DOM is ready
-const chart = new ApexCharts(document.getElementById('apexchart'), chartOptions);
-chart.render();
+// Remove the canvas element — QFChart manages its own DOM inside the container.
+const oldCanvas = document.getElementById('chart');
+if (oldCanvas) oldCanvas.remove();
 
 /**
- * Re-render the candlestick chart for `activeSymbol`.
- * Called after receiving new candles or switching symbols.
+ * Full chart redraw for the active symbol.
+ * Called after a bulk history load or when switching symbols.
  */
 function renderChart() {
   const h = history[activeSymbol];
-  if (!h) return;
-
-  // Convert internal format → ApexCharts format
-  const series = h.candles.map(c => ({ x: c.x, y: [c.o, c.h, c.l, c.c] }));
-  chart.updateSeries([{ name: activeSymbol, data: series }], false);
-
-  // Update OHLCV stats bar with the latest candle
-  const last = h.candles.at(-1);
+  if (!h || h.candles.length === 0) return;
+    qfChart.setMarketData(h.candles.map(toQFBar));
+    const last = h.candles.at(-1);
   if (last) {
     document.getElementById('stat-o').textContent = fmtPrice(last.o);
     document.getElementById('stat-h').textContent = fmtPrice(last.h);
@@ -206,6 +139,29 @@ function renderChart() {
     document.getElementById('stat-c').textContent = fmtPrice(last.c);
     document.getElementById('stat-v').textContent = fmtVol(last.v);
   }
+}
+
+/**
+ * Incremental update — append or replace the last bar.
+ * Avoids a full redraw on every live tick.
+ */
+function pushLiveBar(sym) {
+  if (sym !== activeSymbol) return;
+  const h = history[sym];
+  if (!h || h.candles.length === 0) return;
+
+  const last = h.candles.at(-1);
+  qfChart.updateData([toQFBar(last)]);
+  updateOHLCVBar(last);
+}
+
+/** Update the OHLCV stats row above the chart. */
+function updateOHLCVBar(bar) {
+  document.getElementById('stat-o').textContent = fmtPrice(bar.o);
+  document.getElementById('stat-h').textContent = fmtPrice(bar.h);
+  document.getElementById('stat-l').textContent = fmtPrice(bar.l);
+  document.getElementById('stat-c').textContent = fmtPrice(bar.c);
+  document.getElementById('stat-v').textContent = fmtVol(bar.v);
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -241,18 +197,18 @@ function ensureTickerCard(sym) {
 /**
  * Switch the active symbol and update chart + header.
  */
+
 function selectSymbol(sym) {
   activeSymbol = sym;
-  document.getElementById('chart-sym-label').textContent = sym;
+  
+  // Reset les boutons interval
 
-  // Update active state on all cards
+  document.getElementById('chart-sym-label').textContent = sym;
   document.querySelectorAll('.tc').forEach(c =>
     c.classList.toggle('active', c.dataset.sym === sym));
-  // Update active state in fav list
   document.querySelectorAll('.fav-row').forEach(r =>
     r.classList.toggle('active-fav', r.dataset.sym === sym));
 
-  // Show loading overlay if no candles yet
   const h = history[sym];
   const overlay = document.getElementById('loading-overlay');
   if (!h || h.candles.length === 0) {
@@ -355,11 +311,6 @@ function renderFavList() {
 //  CANDLE HELPERS
 // ──────────────────────────────────────────────────────────────────
 
-/**
- * Round a millisecond timestamp down to the start of its 1-min bar.
- * e.g. 13:47:23 → 13:47:00
- */
-function barKey(ms) { return Math.floor(ms / 60000) * 60000; }
 
 /**
  * Insert or merge a candle into history[sym].candles.
@@ -374,7 +325,7 @@ function upsertCandle(sym, candle) {
   }
   const h    = history[sym];
   const bars = h.candles;
-  const bk   = barKey(candle.x);
+  const bk   = candle.x;
 
   // Search from the end first (most common case: updating the latest bar)
   let idx = bars.length - 1;
@@ -502,7 +453,7 @@ socket.on('trade', data => {
   const h = history[symbol];
 
   // Merge this tick into the current bar
-  const bk = barKey(time);
+  const bk = Math.floor(time / 60000) * 60000;
   const bars = h.candles;
   const lastBar = bars.at(-1);
 
@@ -525,7 +476,10 @@ socket.on('trade', data => {
   h.lastTrade = price;
   updateTickerCard(symbol, price, dir);
 
-  if (symbol === activeSymbol) renderChart();
+  if (symbol === activeSymbol) {
+    const last = history[symbol].candles.at(-1);
+    if (last) qfChart.updateData([toQFBar(last)]);
+  }
   if (favourites.has(symbol)) renderFavList();
 
   // ── Trade log row ──
@@ -622,3 +576,4 @@ if (activeSymbol) {
 
 // Render the initial (empty) fav list
 renderFavList();
+

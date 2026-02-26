@@ -45,8 +45,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet"/>
 
-<!-- ApexCharts: full-featured charts with built-in candlestick type -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/apexcharts/3.45.1/apexcharts.min.js"></script>
+<!-- 1. Include ECharts (Required) -->
+<script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+
+<!-- 2. Include QFChart -->
+<script src="https://cdn.jsdelivr.net/npm/@qfo/qfchart/dist/qfchart.min.browser.js"></script>
 
 <!-- Socket.IO client — must match the version used by Flask-SocketIO on the server -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
@@ -132,10 +135,9 @@
     <div id="loading-overlay">
       <span class="spinner"></span> LOADING HISTORY…
     </div>
-    <div id="apexchart"></div>
+    <div id="qf-mount" style="width:100%;height:100%;min-height:320px;"></div>
   </div>
 </section>
-
 <!-- ═══════════════════════════════════════════════════════════════
      TRADE LOG  — bottom raw-tick feed
      ═══════════════════════════════════════════════════════════════ -->
