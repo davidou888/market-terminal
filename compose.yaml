@@ -12,11 +12,28 @@ services:
     dns:
       - 8.8.8.8
       - 8.8.4.4
-  server:
-    build:
-      context: .
+    build: .
+    user: root
+    environment:
+      DB_HOST: db
+      DB_USER: root
+      DB_PASSWORD: my-secret-pw
+      DB_NAME: my_database
     ports:
-      - 8000:8000
+      - "8000:8000"
+    depends_on:
+      - db
+
+  db:
+    image: mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: my-secret-pw
+      MYSQL_DATABASE: my_database
+    volumes:
+      - db_data:/var/lib/mysql
+
+volumes:
+  db_data:
 
 # The commented out section below is an example of how to define a PostgreSQL
 # database that your application can use. `depends_on` tells Docker Compose to
