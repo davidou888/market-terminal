@@ -9,10 +9,16 @@
 # https://github.com/docker/awesome-compose
 services:
   app:
-    network_mode: host
-  server:
-    build:
-      context: .
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    build: .
+    user: root
+    environment:
+      DB_HOST: db
+      DB_USER: root
+      DB_PASSWORD: my-secret-pw
+      DB_NAME: my_database
     ports:
       - "8000:8000"
     depends_on:
