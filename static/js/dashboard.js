@@ -65,15 +65,39 @@ function saveFavourites() {
   localStorage.setItem(FAV_KEY, JSON.stringify([...favourites]));
 }
 
+/** Function to print console.log() info for debugging in th eserver-side output */
+function debugLog(msg) {
+    fetch('/log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: msg })
+  });
+}
+
 // ──────────────────────────────────────────────────────────────────
 //  CLOCK
 // ──────────────────────────────────────────────────────────────────
+//added better time gestion
+let timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone; //api to get user timezone
+let option = {
+  hour12: false,
+  hour: '2-digit',
+  minute: '2-digit',
+  fractionalSecondDigits: 1
+}
 function tickClock() {
-  document.getElementById('clock').textContent =
-    new Date().toLocaleTimeString('en-GB', { hour12: false });
+  document.getElementById('clock').textContent = 
+    new Date().toLocaleTimeString([],option); // the  [] return the user timestamp as a default argument
+}
+function printTimeZone() {
+  debugLog(`User timezone: ${timeZone}`);
+  document.getElementById('time-zone').textContent = 
+    timeZone;
 }
 tickClock();
-setInterval(tickClock, 1000);
+
+printTimeZone();
+setInterval(tickClock, 10);
 
 // ──────────────────────────────────────────────────────────────────
 //  CHART  (ApexCharts candlestick)
