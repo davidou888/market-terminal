@@ -14,23 +14,28 @@ services:
       - 8.8.4.4
     build: .
     user: root
+    env_file:
+      - config.env
     environment:
       DB_HOST: db
-      DB_USER: ${DB_USER}
-      DB_PASSWORD:  ${MYSQL_ROOT_PASSWORD}
-      DB_NAME:  ${MYSQL_DATABASE}
     ports:
       - "8000:8000"
     depends_on:
-      - db
-
+      db:
+        condition: service_healthy
   db:
     image: mysql
+    env_file:
+      - config.env
     environment:
-      MYSQL_ROOT_PASSWORD: my-secret-pw
-      MYSQL_DATABASE: my_database
+      MYSQL_ROOT_HOST: '%'
     volumes:
       - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
 volumes:
   db_data:
