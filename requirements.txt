@@ -8,3 +8,4 @@ flask-socketio>=5.0.0
 gevent>=22.0.0
 gevent-websocket>=0.10.0
 mysql-connector-python==8.3.0
+sortedcontainers

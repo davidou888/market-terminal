@@ -34,13 +34,16 @@ from key import apiKey
 import pandas as pd 
 import websocket
 import yfinance as yf
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
 from gevent import monkey
 from gevent.threadpool import ThreadPool
 import os
 import pickle
 from datetime import datetime, timedelta
+
+
+from exchange import getTrades, getPositions
 
 # Dossier où stocker les fichiers cache (un fichier .pkl par symbol)
 CACHE_DIR = "/tmp/market_cache"
@@ -424,9 +427,43 @@ def client_log():
     print(f"[CLIENT] {data.get('message')}", flush=True)
     return '', 204
 
+
+
+@app.route("/get-trades", methods=["GET"])
+def get_trades():
+    key = request.args.get("key")
+    symbol = request.args.get("symbol")
+    if not key:
+        return jsonify({"error": "Missing key parameter"}), 400
+
+    result = getTrades(key, symbol)
+
+    return jsonify(result)
+
+
+
+@app.route("/get-pos", methods=["GET"])
+def get_pos():
+    key = request.args.get("key")
+    symbol = request.args.get("symbol")
+    if not key:
+        return jsonify({"error": "Missing key parameter"}), 400
+    
+    result = getPositions(key, symbol)
+  
+    return jsonify(result)
+
+@app.route("/post-info", methods=["POST"])
+def post_info():
+    data = request.json
+    result = {"received": data}
+    return jsonify(result)
+
+
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    
     # Start the Finnhub WebSocket listener in a daemon thread
    # thread = threading.Thread(target=start_finnhub, daemon=True)
    # thread.start()
