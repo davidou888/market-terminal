@@ -43,7 +43,7 @@ import pickle
 from datetime import datetime, timedelta
 
 
-from exchange import getTrades, getPositions
+from exchange import getTrades, getPositions, createOrder
 
 # Dossier où stocker les fichiers cache (un fichier .pkl par symbol)
 CACHE_DIR = "/tmp/market_cache"
@@ -453,10 +453,11 @@ def get_pos():
   
     return jsonify(result)
 
-@app.route("/post-info", methods=["POST"])
-def post_info():
-    data = request.json
-    result = {"received": data}
+@app.route("/post-order", methods=["POST", "GET"])
+def newOrder():
+    orderDict = request.args
+
+    result = createOrder(orderDict)
     return jsonify(result)
 
 
