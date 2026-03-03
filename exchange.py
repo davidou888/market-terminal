@@ -1,5 +1,6 @@
 from key import get_db
 import requests
+from classes import *
 
 
 
@@ -14,10 +15,6 @@ def checkSymbol(symbol):
 
 def checkUser(key):
     conn, cursor = get_db()
-    cursor.execute("SELECT * FROM order_book WHERE side='S'")
-    rows = cursor.fetchall()
-
-
     cursor.execute("SELECT * FROM users WHERE api_key = %s", (key,))
     rows = cursor.fetchall()
 
@@ -37,7 +34,7 @@ def checkUser(key):
 #----------HELPERS TRADES-----------------------
 
 
-def getInfoTrades(symbol=""):
+def getInfoTrades(symbol="", god = False):
     if symbol:
         print("[SQL]: get order_book with symbol:", symbol)
         conn, cursor = get_db()
@@ -54,7 +51,10 @@ def getInfoTrades(symbol=""):
         cursor.execute("SELECT * FROM order_book")
         rows = cursor.fetchall()
         conn.close()
-        result = [lst[1:-1] for lst in rows]
+        if god:
+            result = [lst for lst in rows]
+        else:
+            result = [lst[1:-1] for lst in rows]
         if result:
             print("[SQL]: succes, returning", len(result), "rows")
         return result
@@ -86,20 +86,14 @@ def getInfoPositions(key, symbol=""):
 
 
 
-def separateOrder(key, side, price, volume):
-
-    if side == "sell":
-        createSellOrder()
-    else:
-        createBuyOrder()
-    matchEngine()
 
 
-def createSellOrder(price, volume):
-    conn, cursor = get_db()
-    cursor.execute("INSERT INTO order_book (side, price, quantity) VALUES ('S', %s, %s)", ( price, volume))
-    conn.commit()
-    conn.close()
+
+
+
+
+def addTradeLog(trade):
+    return
 
 def createBuyOrder(price, volume):
     conn, cursor = get_db()
@@ -117,28 +111,25 @@ def checkPosition(key,stock):
     conn.close()
     return volume
 
-def checkMoney():
+def checkMoney(key):
+    conn, cursor = get_db()
+    cursor.execute("SELECT * FROM position WHERE userID = %s AND stock = %s", (key, stock))
+    row = cursor.fetchall()
     return True
 
 def updatePosition():
     return
 
 
-def matchEngine():
-    conn, cursor = get_db()
-    cursor.execute("SELECT * FROM order_book WHERE side='B' ORDER BY price DESC, created_at DESC")
-    rowsBUY = cursor.fetchall()
-    print("RB1",float(rowsBUY[0][2]))
 
-    cursor.execute("SELECT * FROM order_book WHERE side='S' ORDER BY price ASC, created_at DESC")
-    rowsSELL = cursor.fetchall()
-    print("RS1",float(rowsSELL[0][2]))
-    conn.close()
-    while(rowsBUY[0][4] >= rowsSELL[0][4]):
-        print("[SOLD]", rowsBUY[0][3], "at", float(rowsBUY[0][2]))
+
 
 
 #-------------------MAIN FUNCTIONS----------------------
+
+
+
+
 
 def getTrades(key,symbol=""):
     if checkUser(key) :
@@ -154,6 +145,23 @@ def getPositions(key,symbol=""):
         return getInfoPositions(key, symbol)
     print("[CONN]: failed")
     return checkUser(key)
+
+def createOrder(orderDict):
+    ORDER_BOOK = OrderBook(getInfoTrades(god=True))
+    if checkUser(orderDict["key"]) :
+        newOrder = Order(orderDict["side"],orderDict["sym"],int(orderDict["price"]),int(orderDict["vol"]),orderDict["key"])
+        trades, reste = ORDER_BOOK.matchOrder(newOrder)
+        print("------new order book------")
+        ORDER_BOOK.print_order_book()
+        if reste:
+            #addOrderDB(reste)
+            print("Il en reste")
+        
+        return "[ORDER] Order created"
+    print("[CONN]: failed")
+    return checkUser(orderDict["key"])
+    
+
 
 
 #createOrder("B", 104, 10)
