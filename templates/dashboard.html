@@ -1,166 +1,488 @@
 <!DOCTYPE html>
-<!--
-  dashboard.html — Market Feed Dashboard
-  =======================================
-  Served by server.py via Flask's render_template().
-
-  Template variables injected by Jinja2:
-    {{ symbols }}  — JSON list of initial symbols (e.g. ["AAPL","AMZN","BINANCE:BTCUSDT"])
-
-  Key features
-  ─────────────
-  1. Candlestick chart (ApexCharts) — renders OHLCV bars received as `candle` events.
-     Live trades are aggregated client-side into 1-min bars and merged in real-time.
-
-  2. Multi-symbol ticker bar — clicking a ticker switches the chart to that symbol.
-
-  3. Add Symbol panel — type any ticker, hit Enter or click "+". The client emits
-     `subscribe_symbol`; the server validates, fetches history, and broadcasts `candle`
-     events back. A toast notification confirms success / failure.
-
-  4. Favourites list — any tracked symbol can be starred (⭐). Favourites are stored in
-     localStorage so they survive page refreshes. The panel shows only starred tickers
-     with their latest price and % change.
-
-  5. Trade log — scrolling feed of the last ~60 raw tick events across all symbols.
-
-  Socket events consumed
-  ──────────────────────
-    candle        {symbol, time, open, high, low, close, volume}
-    trade         {symbol, price, volume, time}
-    history_done  {symbol}   — all historical candles for a symbol have been sent
-    symbol_ack    {symbol, ok, error?, already?}   — response to subscribe_symbol
-
-  Socket events emitted
-  ─────────────────────
-    subscribe_symbol  {symbol}
--->
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Market Terminal</title>
+<title>market-terminal</title>
 
-<!-- Fonts: IBM Plex Mono (monospace data) + Syne (display headings) -->
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
 
-<!-- 1. Include ECharts (Required) -->
+<!-- ECharts + QFChart pour les candlesticks -->
 <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
-
-<!-- 2. Include QFChart -->
 <script src="https://cdn.jsdelivr.net/npm/@qfo/qfchart/dist/qfchart.min.browser.js"></script>
 
-<!-- Socket.IO client — must match the version used by Flask-SocketIO on the server -->
+<!-- Socket.IO -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
 
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
- <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}"/>
+  :root {
+    --bg:       #f7f7f5;
+    --surface:  #ffffff;
+    --border:   #e8e8e4;
+    --text:     #1a1a18;
+    --muted:    #9a9a94;
+    --green:    #1a7a4a;
+    --green-bg: #edf7f1;
+    --red:      #c0392b;
+    --red-bg:   #fdf0ee;
+    --radius:   6px;
+    --mono:     'DM Mono', monospace;
+    --sans:     'DM Sans', sans-serif;
+  }
 
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
 
+  /* ── Header ── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+  }
+  .logo span { color: var(--muted); }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .timer {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .timer strong { color: var(--text); font-weight: 500; }
+
+  .session-badge {
+    background: var(--green-bg);
+    color: var(--green);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 8px;
+    border-radius: 20px;
+    font-family: var(--mono);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .session-badge::before {
+    content: '';
+    width: 5px; height: 5px;
+    background: var(--green);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .user-info { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+
+  /* ── Symbol tabs ── */
+  .symbol-bar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    display: flex;
+    gap: 0;
+    flex-shrink: 0;
+  }
+
+  .symbol-tab {
+    padding: 10px 18px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .symbol-tab:hover { color: var(--text); }
+  .symbol-tab.active { color: var(--text); border-bottom-color: var(--text); }
+  .symbol-price.up { color: var(--green); }
+  .symbol-price.down { color: var(--red); }
+
+  /* ── Main layout ── */
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 280px 260px;
+    gap: 1px;
+    background: var(--border);
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .panel {
+    background: var(--surface);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panel-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+
+  .panel-title {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+
+  .panel-body {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .panel-body::-webkit-scrollbar { width: 4px; }
+  .panel-body::-webkit-scrollbar-track { background: transparent; }
+  .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Chart panel ── */
+  .chart-panel { grid-column: 1; display: flex; flex-direction: column; }
+
+  .chart-stats {
+    display: flex;
+    gap: 24px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .stat { display: flex; flex-direction: column; gap: 2px; }
+  .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat-value { font-family: var(--mono); font-size: 14px; font-weight: 500; }
+  .stat-value.up { color: var(--green); }
+  .stat-value.down { color: var(--red); }
+
+  #qf-mount { flex: 1; min-height: 0; }
+
+  /* ── Order book ── */
+  .book-panel { grid-column: 2; }
+
+  .book-side-label {
+    padding: 8px 16px;
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    display: flex;
+    justify-content: space-between;
+    color: var(--muted);
+  }
+
+  .book-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    padding: 4px 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    position: relative;
+    cursor: default;
+  }
+  .book-row:hover { background: var(--bg); }
+  .book-row .bar { position: absolute; top:0; bottom:0; right:0; opacity:0.12; border-radius: 2px 0 0 2px; }
+  .ask-row .bar { background: var(--red); }
+  .bid-row .bar { background: var(--green); }
+  .ask-row .price { color: var(--red); font-weight: 500; }
+  .bid-row .price { color: var(--green); font-weight: 500; }
+  .book-row .qty, .book-row .total { color: var(--muted); text-align: right; }
+
+  .spread-row {
+    padding: 6px 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg);
+    flex-shrink: 0;
+  }
+  .spread-label { color: var(--muted); font-size: 10px; }
+  .spread-value { font-weight: 500; }
+
+  /* ── Right column: order form + portfolio ── */
+  .right-col {
+    grid-column: 3;
+    display: flex;
+    flex-direction: column;
+    background: var(--border);
+    gap: 1px;
+  }
+
+  /* ── Order form ── */
+  .order-panel { flex-shrink: 0; }
+
+  .order-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-bottom: 1px solid var(--border);
+  }
+  .order-tab {
+    padding: 10px;
+    text-align: center;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .order-tab.buy.active  { color: var(--green); border-bottom-color: var(--green); }
+  .order-tab.sell.active { color: var(--red);   border-bottom-color: var(--red); }
+
+  .order-form { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .field input {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .field input:focus { border-color: var(--text); background: var(--surface); }
+
+  .order-summary {
+    background: var(--bg);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .summary-row { display: flex; justify-content: space-between; font-size: 11px; }
+  .summary-row .key { color: var(--muted); }
+  .summary-row .val { font-family: var(--mono); font-weight: 500; }
+
+  .btn-submit {
+    width: 100%;
+    padding: 10px;
+    border: none;
+    border-radius: var(--radius);
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .btn-submit:hover { opacity: 0.85; }
+  .btn-submit.buy  { background: var(--green); color: #fff; }
+  .btn-submit.sell { background: var(--red);   color: #fff; }
+
+  /* ── Portfolio ── */
+  .portfolio-panel { flex: 1; overflow: hidden; }
+
+  .portfolio-total {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-shrink: 0;
+  }
+  .portfolio-total .amount { font-family: var(--mono); font-size: 18px; font-weight: 500; }
+  .portfolio-total .change { font-family: var(--mono); font-size: 12px; color: var(--green); }
+
+  .position-row {
+    padding: 10px 16px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 8px;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .position-row:last-child { border-bottom: none; }
+  .pos-symbol { font-family: var(--mono); font-size: 12px; font-weight: 500; background: var(--bg); padding: 3px 7px; border-radius: 4px; }
+  .pos-details { display: flex; flex-direction: column; gap: 1px; }
+  .pos-qty { font-size: 12px; font-family: var(--mono); }
+  .pos-avg { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+  .pos-pnl { font-family: var(--mono); font-size: 12px; font-weight: 500; text-align: right; }
+  .pos-pnl.up { color: var(--green); }
+  .pos-pnl.down { color: var(--red); }
+
+  /* ── Leaderboard ── */
+  .leaderboard {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .lb-inner {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    border-top: 1px solid var(--border);
+  }
+  .lb-row {
+    display: flex;
+    flex-direction: column;
+    padding: 8px 16px;
+    border-right: 1px solid var(--border);
+    gap: 2px;
+  }
+  .lb-row:last-child { border-right: none; }
+  .lb-row.me { background: #fafaf8; }
+  .lb-rank { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .lb-name { font-size: 12px; font-weight: 500; }
+  .lb-name .you { font-size: 10px; color: var(--muted); margin-left: 4px; font-weight: 400; }
+  .lb-portfolio { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .lb-pnl { font-family: var(--mono); font-size: 12px; font-weight: 500; }
+  .lb-pnl.up { color: var(--green); }
+  .lb-pnl.down { color: var(--red); }
+</style>
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════════════════════════════
-     HEADER
-     ═══════════════════════════════════════════════════════════════ -->
+<!-- Header -->
 <header>
-  <div class="logo">MARKET<em>//</em>TERMINAL v1.006</div>
-  <div class="header-time">
-  <span id="clock"></span>
-  <span id="time-zone"></span>
-</div>
-  <div class="status">
-    <div id="conn-dot"></div>
-    <span id="conn-label">CONNECTING</span>
+  <div class="logo">market<span>-terminal</span></div>
+  <div class="header-right">
+    <div class="timer">Session ends in <strong id="timer">10:00</strong></div>
+    <div class="session-badge">LIVE</div>
+    <div class="user-info" id="user-info">— / $10,000.00</div>
   </div>
 </header>
 
-<!-- ═══════════════════════════════════════════════════════════════
-     TICKER BAR  (populated dynamically by JS)
-     ═══════════════════════════════════════════════════════════════ -->
-<div class="ticker-bar" id="ticker-bar"></div>
+<!-- Symbol tabs -->
+<div class="symbol-bar" id="symbol-bar">
+  {% for sym in symbols %}
+  <div class="symbol-tab {% if loop.first %}active{% endif %}" data-sym="{{ sym }}">
+    {{ sym }} <span class="symbol-price" id="price-{{ sym }}">—</span>
+  </div>
+  {% endfor %}
+</div>
 
-<!-- ═══════════════════════════════════════════════════════════════
-     SIDEBAR — favourites + add symbol
-     ═══════════════════════════════════════════════════════════════ -->
-<aside class="sidebar">
-  <!-- Favourites header -->
-  <div class="panel-title">⭐ Favourites</div>
+<!-- Main grid -->
+<div class="main">
 
-  <!-- Favourite rows are injected here by renderFavList() -->
-  <div id="fav-list">
-    <div class="fav-empty" id="fav-empty">
-      Star a symbol in<br>the ticker bar to<br>add it here.
+  <!-- Chart -->
+  <div class="panel chart-panel">
+    <div class="chart-stats">
+      <div class="stat"><span class="stat-label">Last</span><span class="stat-value" id="stat-last">—</span></div>
+      <div class="stat"><span class="stat-label">Open</span><span class="stat-value" id="stat-open">—</span></div>
+      <div class="stat"><span class="stat-label">High</span><span class="stat-value up" id="stat-high">—</span></div>
+      <div class="stat"><span class="stat-label">Low</span><span class="stat-value down" id="stat-low">—</span></div>
+      <div class="stat"><span class="stat-label">Volume</span><span class="stat-value" id="stat-vol">—</span></div>
+    </div>
+    <div id="qf-mount" style="flex:1; min-height:0;"></div>
+  </div>
+
+  <!-- Order book -->
+  <div class="panel book-panel">
+    <div class="panel-header">
+      <span class="panel-title">Order Book</span>
+      <span class="panel-title" id="book-sym">—</span>
+    </div>
+    <div class="panel-body" id="book-asks-container">
+      <div class="book-side-label"><span>Price</span><span>Qty</span><span>Total</span></div>
+      <div id="book-asks"></div>
+      <div class="spread-row">
+        <span class="spread-label">Spread</span>
+        <span class="spread-value" id="book-spread">—</span>
+      </div>
+      <div id="book-bids"></div>
     </div>
   </div>
 
-  <!-- Add symbol form -->
-  <div class="add-panel">
-    <label for="sym-input">Add Symbol</label>
-    <div class="add-row">
-      <!-- Input: user types a ticker (e.g. TSLA, NVDA, BINANCE:ETHUSDT) -->
-      <input id="sym-input" type="text" placeholder="e.g. TSLA" maxlength="20" autocomplete="off"/>
-      <button id="sym-add-btn" title="Subscribe to symbol">+</button>
-    </div>
-    <!-- Status message below the input (success / error / spinner) -->
-    <div id="add-status"></div>
-  </div>
-</aside>
+  <!-- Right column -->
+  <div class="right-col">
 
-<!-- ═══════════════════════════════════════════════════════════════
-     MAIN — candlestick chart
-     ═══════════════════════════════════════════════════════════════ -->
-<section class="main">
-  <div class="chart-header">
-    <!-- Current symbol name -->
-    <div class="chart-title">
-      <span id="chart-sym-label">—</span>
-      <small style="font-family:var(--mono);font-size:.65rem;color:var(--muted);margin-left:8px;">
-        1 MIN · OHLCV
-      </small>
+    <!-- Order form -->
+    <div class="panel order-panel">
+      <div class="panel-header"><span class="panel-title">Place Order</span></div>
+      <div class="order-tabs">
+        <div class="order-tab buy active" onclick="setOrderSide('buy')">Buy</div>
+        <div class="order-tab sell" onclick="setOrderSide('sell')">Sell</div>
+      </div>
+      <div class="order-form">
+        <div class="field">
+          <label>Symbol</label>
+          <input type="text" id="orderSym" value="" readonly>
+        </div>
+        <div class="field">
+          <label>Price</label>
+          <input type="number" id="orderPrice" value="" step="0.01" oninput="updateSummary()">
+        </div>
+        <div class="field">
+          <label>Quantity</label>
+          <input type="number" id="orderQty" value="10" min="1" oninput="updateSummary()">
+        </div>
+        <div class="order-summary">
+          <div class="summary-row"><span class="key">Total</span><span class="val" id="summaryTotal">—</span></div>
+          <div class="summary-row"><span class="key">Cash</span><span class="val" id="summaryCash">$10,000.00</span></div>
+        </div>
+        <button class="btn-submit buy" id="submitBtn" onclick="placeOrder()">Buy</button>
+      </div>
     </div>
-    <!-- Live OHLCV stats for the hovered / latest candle -->
-    <div class="ohlcv-bar" id="ohlcv-bar">
-      <span>O<b id="stat-o">—</b></span>
-      <span>H<b id="stat-h">—</b></span>
-      <span>L<b id="stat-l">—</b></span>
-      <span>C<b id="stat-c">—</b></span>
-      <span>V<b id="stat-v">—</b></span>
-    </div>
-  </div>
 
-  <!-- ApexCharts mounts here -->
-  <div id="chart-container">
-    <div id="loading-overlay">
-      <span class="spinner"></span> LOADING HISTORY…
+    <!-- Portfolio -->
+    <div class="panel portfolio-panel">
+      <div class="panel-header"><span class="panel-title">Portfolio</span></div>
+      <div class="portfolio-total">
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">Total value</div>
+          <div class="amount" id="portfolio-total">$10,000.00</div>
+        </div>
+        <div class="change" id="portfolio-pnl">+$0.00</div>
+      </div>
+      <div class="panel-body" id="positions-list">
+        <div style="padding:16px; color:var(--muted); font-size:12px;">No positions yet.</div>
+      </div>
     </div>
-    <div id="qf-mount" style="width:100%;height:100%;min-height:320px;"></div>
-  </div>
-</section>
-<!-- ═══════════════════════════════════════════════════════════════
-     TRADE LOG  — bottom raw-tick feed
-     ═══════════════════════════════════════════════════════════════ -->
-<div class="log-section">
-  <div class="panel-title">TRADE LOG</div>
-  <div class="log-table-wrap" id="log-table-wrap">
-    <div class="log-head">
-      <span>TIME</span>
-      <span>SYMBOL</span>
-      <span style="text-align:right">PRICE</span>
-      <span style="text-align:right">CHG</span>
-      <span style="text-align:right">VOLUME</span>
-    </div>
-    <!-- Log rows are prepended here -->
+
   </div>
 </div>
 
-<!-- Toast notification container -->
-<div id="toast-container"></div>
+<!-- Leaderboard -->
+<div class="leaderboard">
+  <div class="panel-header" style="padding:8px 16px;">
+    <span class="panel-title">Leaderboard</span>
+    <span style="font-size:11px;color:var(--muted);font-family:var(--mono);" id="lb-count"></span>
+  </div>
+  <div class="lb-inner" id="leaderboard"></div>
+</div>
 
-<!-- ═══════════════════════════════════════════════════════════════
-     JAVASCRIPT
-     ═══════════════════════════════════════════════════════════════ -->
 <script>
   window.SYMBOLS = {{ symbols | tojson }};
 </script>
