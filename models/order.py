@@ -3,7 +3,7 @@ from sortedcontainers import SortedDict
 from collections import deque
 import itertools
 import uuid
-
+from extension import socketio
 from config import get_db
 
 
@@ -133,6 +133,8 @@ class OrderBook:
             trades.append(Trade(remainder if order.side == "B" else match_order, 
                     match_order if order.side == "B" else remainder,
                     price, traded_vol))
+            #on envoie un event socket au CLIENT pour dire qu'un trade a eu lieu, avec les infos du trade
+            socketio.emit("made_trade", {"symbol": order.symbol, "quantity": float(traded_vol), "price": float(price)})
             print("[TRADE]: Trade happend !")
 
             remainder.volume -= traded_vol
