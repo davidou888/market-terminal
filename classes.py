@@ -3,6 +3,7 @@ from sortedcontainers import SortedDict
 from collections import deque
 import itertools
 import uuid
+from datetime import datetime
 
 from key import get_db
 
@@ -26,11 +27,16 @@ def delOrderDB(order):
 
 
 def alterOrderDB(order):
+   
+   print(f"order.vol = {order.volume}")
    conn, cursor = get_db()
    cursor.execute("UPDATE order_book SET quantity= %s WHERE id=%s", (order.volume, order.id))
    conn.commit()
    conn.close()
-   print(f"[DB]: updated order ID:{order.id} from order_book" )
+   print(f"[DB]: updated order ID:{order.id} from order_book to have vol: {order.volume}" )
+
+
+
 
 
 class Order:
@@ -46,6 +52,17 @@ class Order:
       self.userKey = userKey
       self.timestamp = time.time()
    
+
+   def to_dict(self):
+      return {
+         "id":        self.id,
+         "side":      self.side,
+         "symbol":    self.symbol,
+         "price":     float(self.price),  
+         "quantity":  self.volume,
+         "timestamp": str(self.timestamp),
+      }
+
    def updateVol(self,newVol):
        self.volume = newVol
 
@@ -54,17 +71,32 @@ class Order:
 
 
 class Trade:
-    def __init__(self, buy_order, sell_order, price, quantity):
-        self.buy_order_id = buy_order.id
-        self.sell_order_id = sell_order.id
-        self.price = price
-        self.quantity = quantity
-        self.timestamp = time.time()
+   def __init__(self, buy_order: Order, sell_order: Order, price, quantity):
+      self.buy_order_id = buy_order.id
+      self.sell_order_id = sell_order.id
+      self.symbol = buy_order.symbol
+      self.price = price
+      self.quantity = quantity
+      self.timestamp = datetime.now()
+   
 
+   def to_dict(self):
+      return {
+         "buy_order_id":  self.buy_order_id,
+         "sell_order_id": self.sell_order_id,
+         "symbol":        self.symbol,
+         "price":         float(self.price),
+         "quantity":      self.quantity,
+         "timestamp":     str(self.timestamp),
+      }
 
-class TradeLog:
-   def __init__(self):
-      pass
+   def logTrade(self):
+      conn, cursor = get_db()
+      cursor.execute("INSERT INTO trade_log (buy_order_id, sell_order_id, symbol, price, quantity, timestamp) VALUES (%s,%s, %s, %s, %s, %s)", (self.buy_order_id,self.sell_order_id, self.symbol,self.price, self.quantity, self.timestamp))
+      conn.commit()
+      conn.close()
+      print(f"[DB]: added trade to trade_log" )
+
 
 
 class OrderBook:
@@ -87,10 +119,11 @@ class OrderBook:
             self.bids[price].append(row)
 
 
-      print("ASKS:",self.asks) 
-      print("BID:",self.bids) 
+      #print("ASKS:",self.asks) 
+      #rint("BID:",self.bids) 
    
 
+   
 
    def print_order_book(book):
       print("=== BIDS ===")
@@ -105,16 +138,20 @@ class OrderBook:
        
 
 
-   def matchOrder(self,order):
+   def matchOrder(self,order: Order):
       trades = []
-      remainder = order
+      remainder: Order = order
 
 
-      print(f"remainder id: {remainder.id}")
+      #print(f"remainder id: {remainder.id}")
       opposite = self.bids if order.side == "S" else self.asks
 
-      print(f"[DEBUG] order: {order.side} {order.price} vol={getattr(order, 'volume', None) or getattr(order, 'quantity', None)}")
-      print(f"[DEBUG] opposite book: {dict(opposite)}")
+      print(f"Opposite: {opposite}")
+
+      
+
+      #print(f"[DEBUG] order: {order.side} {order.price} vol={getattr(order, 'volume', None) or getattr(order, 'quantity', None)}")
+      #print(f"[DEBUG] opposite book: {dict(opposite)}")
 
       for price, queue in list(opposite.items()):
          if (order.side == 'B' and order.price < price) or \
@@ -127,7 +164,7 @@ class OrderBook:
             (order.side == 'S' and order.price <= price)):
             
             match_order = Order(*queue[0][1:5], queue[0][6], queue[0][0])
-            print(f"match order id: {match_order.id}")
+            #print(f"match order id: {match_order.id}")
             traded_vol = min(remainder.volume, match_order.volume)
             #print("[TRADE]: Trade happend !")
             trades.append(Trade(remainder if order.side == "B" else match_order, 
@@ -154,6 +191,9 @@ class OrderBook:
       
       if remainder.volume > 0:
          addOrderDB(remainder)
+      
+      for trade in trades:
+         trade.logTrade()
 
       return trades, remainder if remainder.volume > 0 else None
 

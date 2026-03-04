@@ -41,14 +41,17 @@ def getInfoTrades(symbol="", god = False):
         cursor.execute("SELECT * FROM order_book WHERE symbol=%s", (symbol,))
         rows = cursor.fetchall()
         conn.close()
-        result = [lst[1:-1] for lst in rows]
+        if god:
+            result = [lst for lst in rows]
+        else:
+            result = [lst[1:-1] for lst in rows]
         if result:
             print("[SQL]: succes, returning", len(result), "rows")
         return result
     else:
         print("[SQL]: get all order_book")
         conn, cursor = get_db()
-        cursor.execute("SELECT * FROM order_book")
+        cursor.execute("SELECT * FROM order_book ORDER BY price, created_at")
         rows = cursor.fetchall()
         conn.close()
         if god:
@@ -121,7 +124,12 @@ def updatePosition():
     return
 
 
-
+def showTradeLog():
+    conn, cursor = get_db()
+    cursor.execute("SELECT * FROM tarde_log")
+    rows = cursor.fetchall()
+    for row in rows:
+        print(row)
 
 
 
@@ -147,17 +155,21 @@ def getPositions(key,symbol=""):
     return checkUser(key)
 
 def createOrder(orderDict):
-    ORDER_BOOK = OrderBook(getInfoTrades(god=True))
+    ORDER_BOOK = OrderBook(getInfoTrades(orderDict["sym"], god=True))
     if checkUser(orderDict["key"]) :
         newOrder = Order(orderDict["side"],orderDict["sym"],int(orderDict["price"]),int(orderDict["vol"]),orderDict["key"])
         trades, reste = ORDER_BOOK.matchOrder(newOrder)
-        print("------new order book------")
-        ORDER_BOOK.print_order_book()
+        #print("------new order book------")
+        #ORDER_BOOK.print_order_book()
+
         if reste:
             #addOrderDB(reste)
             print("Il en reste")
-        
-        return "[ORDER] Order created"
+        result = {
+            "trades": [t.to_dict() for t in trades],
+            "reste":  reste.to_dict() if reste else None
+        }
+        return result
     print("[CONN]: failed")
     return checkUser(orderDict["key"])
     
