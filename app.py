@@ -35,6 +35,35 @@ def client_log():
     print(f"[CLIENT] {data.get('message')}", flush=True)
     return '', 204
 
+
+
+@app.route("/get-trades", methods=["GET"])
+def get_trades():
+    key = request.args.get("key")
+    symbol = request.args.get("symbol")
+    if not key:
+        return jsonify({"error": "Missing key parameter"}), 400
+
+    result = getTrades(key, symbol)
+
+    return jsonify(result)
+
+
+
+@app.route("/get-pos", methods=["GET"])
+def get_pos():
+    key = request.args.get("key")
+    symbol = request.args.get("symbol")
+    if not key:
+        return jsonify({"error": "Missing key parameter"}), 400
+    
+    result = getPositions(key, symbol)
+  
+    return jsonify(result)
+
+
+
+
 @app.route("/post-order", methods=["GET"])
 def post_order():
     data = {
