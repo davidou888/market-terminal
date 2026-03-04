@@ -4,7 +4,7 @@ from collections import deque
 import itertools
 import uuid
 
-from key import get_db
+from config import get_db
 
 
 _order_counter = itertools.count(1)
