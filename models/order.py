@@ -11,14 +11,14 @@ from config import get_db
 
 
 
-def addOrderDB(order):
+def addOrderOB(order):
     conn, cursor = get_db()
     cursor.execute("INSERT INTO order_book (id,side,symbol, price, quantity, user_api_key) VALUES (%s,%s, %s, %s, %s, %s)", (order.id,order.side,order.symbol, order.price, order.volume, order.userKey))
     conn.commit()
     conn.close()
     print(f"[DB]: added order ID:{order.id} to order_book" )
 
-def delOrderDB(order):
+def delOrderOB(order):
    conn, cursor = get_db()
    cursor.execute("DELETE FROM order_book WHERE id = %s", (order.id,))
    conn.commit()
@@ -26,7 +26,7 @@ def delOrderDB(order):
    print(f"[DB]: deleted order ID:{order.id} from order_book" )
 
 
-def alterOrderDB(order):
+def alterOrderOB(order):
    
    print(f"order.vol = {order.volume}")
    conn, cursor = get_db()
@@ -102,12 +102,12 @@ class Order:
       cursor.execute("SELECT balance FROM users WHERE api_key = %s", (self.userKey,))
       row = cursor.fetchall()
       if len(row) != 1:
-         return (False,"[ERROR] user key invalid")
+         return (False,"user key invalid")
       else:
          if int(row[0][0]) - (self.price * self.volume)>=0:
             return (True, f"user has {int(row[0][0])}$ and will have {int(row[0][0]) - (self.price * self.volume)}$")
          else:
-            return (False, f"user has {int(row[0][0])}$ and wants to spend {(self.price * self.volume)}$")
+            return (False, f"INSUF. FUNDS: user has {int(row[0][0])}$ and wants to spend {(self.price * self.volume)}$")
          
       
 
@@ -224,11 +224,11 @@ class OrderBook:
 
             if match_order.volume == 0:
                print("should delete")
-               delOrderDB(match_order)
+               delOrderOB(match_order)
                queue.popleft()
             else:
                print("should alter")
-               alterOrderDB(match_order)
+               alterOrderOB(match_order)
 
          
          if not queue:
@@ -238,7 +238,7 @@ class OrderBook:
             break
       
       if remainder.volume > 0:
-         addOrderDB(remainder)
+         addOrderOB(remainder)
       
       for trade in trades:
          trade.makeTrade()
