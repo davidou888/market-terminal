@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS order_book (
-    id VARCHAR(36) PRIMARY KEY,
+    id VARCHAR(36) PRIMARY KEY, 
     side CHAR(1) NOT NULL,
     symbol VARCHAR(20) NOT NULL,
     price DECIMAL(15,4) NOT NULL,
@@ -22,13 +22,15 @@ CREATE TABLE IF NOT EXISTS positions (
     user_api_key VARCHAR(100) NOT NULL,
     symbol VARCHAR(20) NOT NULL,
     quantity DECIMAL(15,6) DEFAULT 0,
+    price DECIMAL(15,4) NOT NULL,
     UNIQUE KEY (user_api_key, symbol)
 );
 
-CREATE TABLE IF NOT EXISTS transactions (
+CREATE TABLE IF NOT EXISTS trade_log (
     id INT AUTO_INCREMENT PRIMARY KEY,
     buyer_key VARCHAR(100),
     seller_key VARCHAR(100),
+    /*order ids ?*/
     symbol VARCHAR(20) NOT NULL,
     price DECIMAL(15,4) NOT NULL,
     quantity DECIMAL(15,6) NOT NULL,

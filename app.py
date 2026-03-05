@@ -32,7 +32,7 @@ from routes.auth import auth
 @app.route("/")
 def index():
     """Render the main dashboard, injecting the initial symbol list."""
-    return render_template("dashboard.html", symbols=[])
+    return render_template("dashboard.html", symbols=["GOOGL", "AMZN"])
 
 # This route allows the client-side JavaScript to send log messages that will appear in the server console, which is useful for debugging client-side code in environments where you don't have easy
 @app.route('/log', methods=['POST'])
@@ -40,6 +40,35 @@ def client_log():
     data = request.get_json()
     print(f"[CLIENT] {data.get('message')}", flush=True)
     return '', 204
+
+
+
+@app.route("/get-trades", methods=["GET"])
+def get_trades():
+    key = request.args.get("key")
+    symbol = request.args.get("symbol")
+    if not key:
+        return jsonify({"error": "Missing key parameter"}), 400
+
+    result = getTrades(key, symbol)
+
+    return jsonify(result)
+
+
+
+@app.route("/get-pos", methods=["GET"])
+def get_pos():
+    key = request.args.get("key")
+    symbol = request.args.get("symbol")
+    if not key:
+        return jsonify({"error": "Missing key parameter"}), 400
+    
+    result = getPositions(key, symbol)
+  
+    return jsonify(result)
+
+
+
 
 @app.route("/post-order", methods=["GET"])
 def post_order():
@@ -53,6 +82,10 @@ def post_order():
     result = createOrder(data)
     return jsonify(result)
 
+@app.route("/login", methods=["POST"])
+def login():
+    return    
+    
 @app.route("/auth")
 def auth_page():
     return render_template("login.html")
@@ -60,6 +93,5 @@ def auth_page():
 
 app.register_blueprint(auth)
 # ── Entry point ────────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=8000, debug=False)
