@@ -31,7 +31,7 @@ services:
       MYSQL_ROOT_HOST: '%'
     volumes:
       - db_data:/var/lib/mysql
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql  # ← ajouter cette ligne
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql 
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 5s
