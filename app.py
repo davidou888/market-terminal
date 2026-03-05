@@ -53,6 +53,9 @@ def post_order():
     result = createOrder(data)
     return jsonify(result)
 
+@app.route("/auth")
+def auth_page():
+    return render_template("login.html")
 #register blueprint for auth routes
 
 app.register_blueprint(auth)

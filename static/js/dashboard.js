@@ -6,12 +6,21 @@
 const SYMBOLS     = window.SYMBOLS || [];
 let activeSymbol  = SYMBOLS[0] || null;
 let currentSide   = 'buy';
-let userKey       = null; // TODO: set after auth
+let userKey       = sessionStorage.getItem('api_key');
 let cashBalance   = 10000;
 
 // Per-symbol candle history for QFChart
 const candleHistory = {}; // { sym: [{time, open, high, low, close, volume}] }
 
+
+//
+// REDIRECTION TO LOGIN IF NO API KEY
+//
+if (!userKey) {
+  console.warn('No API key found, redirecting to login');
+  window.location.href = '/auth';
+}
+//
 // ─────────────────────────────────────────────────────────────────
 //  SOCKET
 // ─────────────────────────────────────────────────────────────────
