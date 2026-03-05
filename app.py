@@ -12,6 +12,9 @@ from flask import jsonify
 from services.trade import createOrder, getTrades, getPositions
 
 
+
+
+
 # ── App setup ──────────────────────────────────────────────────────────────────
 
 app = Flask(__name__)
@@ -21,6 +24,9 @@ socketio.init_app(app, cors_allowed_origins="*")  # Initialize SocketIO with COR
 from sockets import game_events
 from sockets import market_events
 
+#enregistrement des blueprint pour auth.py
+
+from routes.auth import auth
 # ── Flask routes ───────────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -47,9 +53,9 @@ def post_order():
     result = createOrder(data)
     return jsonify(result)
 
-@app.route("/login", methods=["POST"])
-def login():
-    
+#register blueprint for auth routes
+
+app.register_blueprint(auth)
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
