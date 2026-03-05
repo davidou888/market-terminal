@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>market-terminal — login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:      #f7f7f5;
+    --surface: #ffffff;
+    --border:  #e8e8e4;
+    --text:    #1a1a18;
+    --muted:   #9a9a94;
+    --green:   #1a7a4a;
+    --green-bg:#edf7f1;
+    --red:     #c0392b;
+    --red-bg:  #fdf0ee;
+    --radius:  6px;
+    --mono:    'DM Mono', monospace;
+    --sans:    'DM Sans', sans-serif;
+  }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 40px;
+    width: 360px;
+    position: relative;
+    z-index: 1;
+    box-shadow: 0 2px 24px rgba(0,0,0,0.06);
+    animation: fadeUp 0.3s ease;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 500;
+    margin-bottom: 32px;
+    letter-spacing: -0.02em;
+  }
+  .logo span { color: var(--muted); }
+
+  .tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 28px;
+    overflow: hidden;
+  }
+
+  .tab {
+    padding: 8px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    cursor: pointer;
+    background: var(--bg);
+    transition: all 0.15s;
+  }
+  .tab.active { background: var(--surface); color: var(--text); }
+
+  .form { display: flex; flex-direction: column; gap: 14px; }
+
+  .field { display: flex; flex-direction: column; gap: 5px; }
+
+  .field label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .field input {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 9px 12px;
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s, background 0.15s;
+    width: 100%;
+  }
+  .field input:focus { border-color: var(--text); background: var(--surface); }
+
+  .btn {
+    width: 100%;
+    padding: 10px;
+    border: none;
+    border-radius: var(--radius);
+    background: var(--text);
+    color: #fff;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    margin-top: 4px;
+  }
+  .btn:hover { opacity: 0.82; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .alert {
+    padding: 9px 12px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-family: var(--mono);
+    display: none;
+    margin-bottom: 16px;
+  }
+  .alert.error   { background: var(--red-bg);   color: var(--red);   display: block; }
+  .alert.success { background: var(--green-bg); color: var(--green); display: block; }
+
+  .api-hint {
+    margin-top: 16px;
+    padding: 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: none;
+  }
+  .api-hint .hint-label {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
+  }
+  .api-hint .hint-key {
+    font-family: var(--mono);
+    font-size: 12px;
+    word-break: break-all;
+    color: var(--text);
+  }
+
+  .footer-note {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    font-family: var(--mono);
+    margin-top: 24px;
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="logo">market<span>-terminal</span></div>
+
+  <div class="tabs">
+    <div class="tab active" id="tab-login" onclick="switchTab('login')">Sign in</div>
+    <div class="tab" id="tab-register" onclick="switchTab('register')">Register</div>
+  </div>
+
+  <div class="alert" id="alert"></div>
+
+  <!-- Login -->
+  <div id="form-login" class="form">
+    <div class="field">
+      <label>Username</label>
+      <input type="text" id="login-username" placeholder="heisenberg" autocomplete="username"/>
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"/>
+    </div>
+    <button class="btn" id="btn-login" onclick="doLogin()">Sign in</button>
+  </div>
+
+  <!-- Register -->
+  <div id="form-register" class="form" style="display:none;">
+    <div class="field">
+      <label>Username</label>
+      <input type="text" id="reg-username" placeholder="heisenberg" autocomplete="username"/>
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="reg-password" placeholder="••••••••" autocomplete="new-password"/>
+    </div>
+    <button class="btn" id="btn-register" onclick="doRegister()">Create account</button>
+    <div class="api-hint" id="api-hint">
+      <div class="hint-label">Your API key — save it for scripts</div>
+      <div class="hint-key" id="api-key-display"></div>
+    </div>
+  </div>
+
+  <div class="footer-note">market-terminal · trading game</div>
+</div>
+
+<script>
+  function switchTab(tab) {
+    document.getElementById('form-login').style.display    = tab === 'login'    ? 'flex' : 'none';
+    document.getElementById('form-register').style.display = tab === 'register' ? 'flex' : 'none';
+    document.getElementById('tab-login').classList.toggle('active',    tab === 'login');
+    document.getElementById('tab-register').classList.toggle('active', tab === 'register');
+    clearAlert();
+  }
+
+  function showAlert(msg, type) {
+    const el = document.getElementById('alert');
+    el.textContent = msg;
+    el.className = `alert ${type}`;
+  }
+
+  function clearAlert() {
+    const el = document.getElementById('alert');
+    el.className = 'alert';
+    el.textContent = '';
+  }
+
+  async function doLogin() {
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!username || !password) return showAlert('Fill in all fields.', 'error');
+
+    const btn = document.getElementById('btn-login');
+    btn.disabled = true;
+    btn.textContent = 'Signing in…';
+
+    try {
+      const res  = await fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        sessionStorage.setItem('api_key',  data.api_key);
+        sessionStorage.setItem('username', username);
+        window.location.href = '/';
+      } else {
+        showAlert(data.error || 'Login failed.', 'error');
+      }
+    } catch (e) {
+      showAlert('Server error.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Sign in';
+    }
+  }
+
+  async function doRegister() {
+    const username = document.getElementById('reg-username').value.trim();
+    const password = document.getElementById('reg-password').value;
+    if (!username || !password) return showAlert('Fill in all fields.', 'error');
+
+    const btn = document.getElementById('btn-register');
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+
+    try {
+      const res  = await fetch('/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showAlert('Account created! Redirecting…', 'success');
+        document.getElementById('api-key-display').textContent = data.api_key;
+        document.getElementById('api-hint').style.display = 'block';
+        setTimeout(() => {
+          sessionStorage.setItem('api_key',  data.api_key);
+          sessionStorage.setItem('username', username);
+          window.location.href = '/';
+        }, 3000);
+      } else {
+        showAlert(data.error || 'Registration failed.', 'error');
+      }
+    } catch (e) {
+      showAlert('Server error.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Create account';
+    }
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const loginActive = document.getElementById('tab-login').classList.contains('active');
+    if (loginActive) doLogin(); else doRegister();
+  });
+</script>
+</body>
+</html>
