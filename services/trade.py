@@ -23,10 +23,9 @@ def checkUser(key):
     
     if not rows:
         print("[CONN]: refused")
-        print("[ERROR]: key not in database")
+        print(f"[ERROR]: key {key} not in database")
         return ValueError("Invalid API key")
     else:
-        
         print("[CONN]: Initialized...")
         return True
 
@@ -34,17 +33,15 @@ def checkUser(key):
 #----------HELPERS TRADES-----------------------
 
 
-def getInfoTrades(symbol="", god = False):
+def getInfoTrades(symbol=""):
     if symbol:
         print("[SQL]: get order_book with symbol:", symbol)
         conn, cursor = get_db()
         cursor.execute("SELECT * FROM order_book WHERE symbol=%s", (symbol,))
         rows = cursor.fetchall()
         conn.close()
-        if god:
-            result = [lst for lst in rows]
-        else:
-            result = [lst[1:-1] for lst in rows]
+
+        result = [lst[1:-1] for lst in rows]
         if result:
             print("[SQL]: succes, returning", len(result), "rows")
         return result
@@ -54,15 +51,21 @@ def getInfoTrades(symbol="", god = False):
         cursor.execute("SELECT * FROM order_book ORDER BY price, created_at")
         rows = cursor.fetchall()
         conn.close()
-        if god:
-            result = [lst for lst in rows]
-        else:
-            result = [lst[1:-1] for lst in rows]
+        result = [lst[1:-1] for lst in rows]
         if result:
             print("[SQL]: succes, returning", len(result), "rows")
         return result
     
-
+def getInfoTradesOB(symbol, key):
+    print("[SQL]: get order_book with symbol:", symbol)
+    conn, cursor = get_db()
+    cursor.execute("SELECT * FROM order_book WHERE symbol=%s AND user_api_key != %s", (symbol,key))
+    rows = cursor.fetchall()
+    conn.close()
+    result = [lst for lst in rows]
+    if result:
+        print("[SQL]: succes, returning", len(result), "rows")
+    return result
 
 #--------------HELPERS POSITIONS-------------------------------
 
@@ -148,30 +151,34 @@ def getTrades(key,symbol=""):
 
 
 def getPositions(key,symbol=""):
-    if checkUser(key) :
+    if checkUser(key):
         print("[CONN]: retriving trades")
         return getInfoPositions(key, symbol)
     print("[CONN]: failed")
     return checkUser(key)
 
 def createOrder(orderDict):
-    ORDER_BOOK = OrderBook(getInfoTrades(orderDict["sym"], god=True))
-    if checkUser(orderDict["key"]) :
+    
+    if checkUser(orderDict["key"]):
+        print("[API-KEY]: Authorized")
+        ORDER_BOOK = OrderBook(getInfoTradesOB(orderDict["sym"], orderDict["key"]))
         newOrder = Order(orderDict["side"],orderDict["sym"],int(orderDict["price"]),int(orderDict["vol"]),orderDict["key"])
-        trades, reste = ORDER_BOOK.matchOrder(newOrder)
-        #print("------new order book------")
-        #ORDER_BOOK.print_order_book()
+        verif, msg = newOrder.checkOrderBalance()
+        if verif:
+            trades, reste = ORDER_BOOK.matchOrder(newOrder)
 
-        if reste:
-            #addOrderDB(reste)
-            print("Il en reste")
-        result = {
-            "trades": [t.to_dict() for t in trades],
-            "reste":  reste.to_dict() if reste else None
-        }
-        return result
-    print("[CONN]: failed")
-    return checkUser(orderDict["key"])
+            if reste:
+                #addOrderDB(reste)
+                print("Il en reste")
+            result = {
+                "trades": [t.to_dict() for t in trades],
+                "reste":  reste.to_dict() if reste else None
+            }
+            return result
+        else:
+            print("[BALANCE]:", msg)
+    print("[API-KEY]: Refused")
+    return {"reste":f"key: {orderDict["key"]} not in db", "trades": "None"}
     
 
 

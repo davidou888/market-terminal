@@ -26,7 +26,7 @@ from sockets import market_events
 @app.route("/")
 def index():
     """Render the main dashboard, injecting the initial symbol list."""
-    return render_template("dashboard.html", symbols=[])
+    return render_template("dashboard.html", symbols=["GOOGL", "AMZN"])
 
 # This route allows the client-side JavaScript to send log messages that will appear in the server console, which is useful for debugging client-side code in environments where you don't have easy
 @app.route('/log', methods=['POST'])
@@ -78,8 +78,8 @@ def post_order():
 
 @app.route("/login", methods=["POST"])
 def login():
+    return    
     
 # ── Entry point ────────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=8000, debug=False)
