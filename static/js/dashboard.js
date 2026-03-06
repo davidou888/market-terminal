@@ -3,8 +3,8 @@
 //  Connects the UI to Flask-SocketIO backend
 // ─────────────────────────────────────────────────────────────────
 
-const SYMBOLS     = window.SYMBOLS || [];
-let activeSymbol  = SYMBOLS[0] || null;
+const SYMBOLS     = ['GOOGL', 'ETHUSDT', 'BNBUSDT'];
+let activeSymbol  = SYMBOLS[0];
 let currentSide   = 'buy';
 let userKey       = sessionStorage.getItem('api_key');
 let cashBalance   = 10000;
@@ -129,16 +129,16 @@ function setOrderSide(side) {
   document.querySelector(`.order-tab.${side}`).classList.add('active');
   const btn = document.getElementById('submitBtn');
   btn.className = `btn-submit ${side}`;
-  btn.textContent = `${side.charAt(0).toUpperCase() + side.slice(1)} ${activeSymbol || ''}`;
+  btn.textContent = `${side.charAt(0).toUpperCase() + side.slice(1)} ${activeSymbol}`;
   updateSummary();
 }
 
 function updateSummary() {
-  const price = parseFloat(document.getElementById('orderPrice').value) || 0;
-  const qty   = parseFloat(document.getElementById('orderQty').value)   || 0;
+  const price = parseFloat(document.getElementById('orderPrice').value);
+  const qty   = parseFloat(document.getElementById('orderQty').value);
   document.getElementById('summaryTotal').textContent = '$' + (price * qty).toFixed(2);
   document.getElementById('submitBtn').textContent =
-    `${currentSide.charAt(0).toUpperCase() + currentSide.slice(1)} ${activeSymbol || ''}`;
+    `${currentSide.charAt(0).toUpperCase() + currentSide.slice(1)} ${activeSymbol}`;
 }
 
 function placeOrder() {
@@ -146,12 +146,15 @@ function placeOrder() {
   const vol   = parseFloat(document.getElementById('orderQty').value);
   const sym   = document.getElementById('orderSym').value;
 
+  let apiSide = currentSide === 'buy' ? 'B' : 'S';
+
   if (!price || !vol || !sym) return;
 
-  // TODO: replace 'demo_key' with real userKey after auth
-  socket.emit(currentSide, { key: userKey || 'demo_key', sym, price, vol });
+  fetch(`/post-order?key=${userKey}&sym=${sym}&side=${apiSide}&price=${price}&vol=${vol}`)
+  .then(r => r.json())
+  .then(data => console.log('[ORDER]', data))
+  .catch(err => console.error('[ORDER ERROR]', err));
 }
-
 // ─────────────────────────────────────────────────────────────────
 //  TIMER
 // ─────────────────────────────────────────────────────────────────
@@ -193,7 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initSymbolTabs();
   initChart();
   startTimer();
-
+  console.log(activeSymbol)
   if (activeSymbol) {
     document.getElementById('orderSym').value   = activeSymbol;
     document.getElementById('book-sym').textContent = activeSymbol;

@@ -93,7 +93,7 @@ class Trade:
 
    def logTrade(self):
       conn, cursor = get_db()
-      cursor.execute("INSERT INTO trade_log (buy_order_id, sell_order_id, symbol, price, quantity, timestamp) VALUES (%s,%s, %s, %s, %s, %s)", (self.buy_order_id,self.sell_order_id, self.symbol,self.price, self.quantity, self.timestamp))
+      cursor.execute("INSERT INTO trade_log (buy_order_id, sell_order_id, symbol, price, quantity, created_at) VALUES (%s,%s, %s, %s, %s, %s)", (self.buy_order_id,self.sell_order_id, self.symbol,self.price, self.quantity, self.timestamp))
       conn.commit()
       conn.close()
       print(f"[DB]: added trade to trade_log" )

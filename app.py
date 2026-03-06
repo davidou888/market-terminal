@@ -32,7 +32,7 @@ from routes.auth import auth
 @app.route("/")
 def index():
     """Render the main dashboard, injecting the initial symbol list."""
-    return render_template("dashboard.html", symbols=[])
+    return render_template("dashboard.html", symbols=['GOOGL', 'ETHUSDT', 'BNBUSDT'])
 
 # This route allows the client-side JavaScript to send log messages that will appear in the server console, which is useful for debugging client-side code in environments where you don't have easy
 @app.route('/log', methods=['POST'])

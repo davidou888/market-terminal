@@ -25,12 +25,12 @@ CREATE TABLE IF NOT EXISTS positions (
     UNIQUE KEY (user_api_key, symbol)
 );
 
-CREATE TABLE IF NOT EXISTS transactions (
+CREATE TABLE IF NOT EXISTS trade_log (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    buyer_key VARCHAR(100),
-    seller_key VARCHAR(100),
+    buy_order_id CHAR(100),
+    sell_order_id CHAR(100),
     symbol VARCHAR(20) NOT NULL,
     price DECIMAL(15,4) NOT NULL,
     quantity DECIMAL(15,6) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
