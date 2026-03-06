@@ -48,6 +48,14 @@ socket.on('trade_result', (data) => {
   // TODO: update portfolio from response
 });
 
+// Game State Updates
+socket.on('time_update', (data) => {
+  const { time_left } = data;
+  const m = Math.floor(time_left / 60).toString().padStart(2, '0');
+  const s = (time_left % 60).toString().padStart(2, '0');
+  document.getElementById('timer').textContent = `${m}:${s}`;
+});
+
 // ─────────────────────────────────────────────────────────────────
 //  CHART (QFChart candlestick)
 // ─────────────────────────────────────────────────────────────────
@@ -129,16 +137,16 @@ function setOrderSide(side) {
   document.querySelector(`.order-tab.${side}`).classList.add('active');
   const btn = document.getElementById('submitBtn');
   btn.className = `btn-submit ${side}`;
-  btn.textContent = `${side.charAt(0).toUpperCase() + side.slice(1)} ${activeSymbol || ''}`;
+  btn.textContent = `${side.charAt(0).toUpperCase() + side.slice(1)} ${activeSymbol}`;
   updateSummary();
 }
 
 function updateSummary() {
-  const price = parseFloat(document.getElementById('orderPrice').value) || 0;
-  const qty   = parseFloat(document.getElementById('orderQty').value)   || 0;
+  const price = parseFloat(document.getElementById('orderPrice').value);
+  const qty   = parseFloat(document.getElementById('orderQty').value);
   document.getElementById('summaryTotal').textContent = '$' + (price * qty).toFixed(2);
   document.getElementById('submitBtn').textContent =
-    `${currentSide.charAt(0).toUpperCase() + currentSide.slice(1)} ${activeSymbol || ''}`;
+    `${currentSide.charAt(0).toUpperCase() + currentSide.slice(1)} ${activeSymbol}`;
 }
 
 function placeOrder() {
@@ -146,27 +154,15 @@ function placeOrder() {
   const vol   = parseFloat(document.getElementById('orderQty').value);
   const sym   = document.getElementById('orderSym').value;
 
+  let apiSide = currentSide === 'buy' ? 'B' : 'S';
+
   if (!price || !vol || !sym) return;
 
-  // TODO: replace 'demo_key' with real userKey after auth
-  socket.emit(currentSide, { key: userKey || 'demo_key', sym, price, vol });
+  fetch(`/post-order?key=${userKey}&sym=${sym}&side=${apiSide}&price=${price}&vol=${vol}`)
+  .then(r => r.json())
+  .then(data => console.log('[ORDER]', data))
+  .catch(err => console.error('[ORDER ERROR]', err));
 }
-
-// ─────────────────────────────────────────────────────────────────
-//  TIMER
-// ─────────────────────────────────────────────────────────────────
-let sessionSeconds = 10 * 60;
-
-function startTimer() {
-  setInterval(() => {
-    if (sessionSeconds <= 0) return;
-    sessionSeconds--;
-    const m = Math.floor(sessionSeconds / 60).toString().padStart(2, '0');
-    const s = (sessionSeconds % 60).toString().padStart(2, '0');
-    document.getElementById('timer').textContent = `${m}:${s}`;
-  }, 1000);
-}
-
 // ─────────────────────────────────────────────────────────────────
 //  SESSION BADGE
 // ─────────────────────────────────────────────────────────────────
