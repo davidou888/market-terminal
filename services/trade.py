@@ -59,6 +59,7 @@ def getInfoTrades(symbol=""):
 def getInfoTradesOB(symbol, key):
     print("[SQL]: get order_book with symbol:", symbol)
     conn, cursor = get_db()
+    #make it so you cant make transaction with your own orders by adding "AND user_api_key != %s" to the query
     cursor.execute("SELECT * FROM order_book WHERE symbol=%s AND user_api_key != %s ORDER BY price, created_at", (symbol,key))
     rows = cursor.fetchall()
     conn.close()
@@ -88,14 +89,6 @@ def getInfoPositions(key, symbol=""):
 
 
 #-----------------HELPERS ORDER--------------------
-
-
-
-
-
-
-
-
 
 
 def addTradeLog(trade):
