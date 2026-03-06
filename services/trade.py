@@ -1,6 +1,7 @@
 from config import get_db
 import requests
 from models.order import *
+from extension import LIST_SYMBOL
 
 
 
@@ -10,8 +11,7 @@ from models.order import *
 
 #-----------HELPERS MAIN----------------------
 
-def checkSymbol(symbol):
-    return True
+
 
 def checkUser(key):
     conn, cursor = get_db()
@@ -24,10 +24,37 @@ def checkUser(key):
     if not rows:
         print("[CONN]: refused")
         print(f"[ERROR]: key {key} not in database")
-        return False
+        return (False, f"key {key} not in database")
     else:
         print("[CONN]: Initialized...")
-        return True
+        return (True, None)
+
+def checkNumbers(price, volume):
+    try:
+        price = float(price)
+        volume = int(volume)
+    except (ValueError, TypeError):
+        return (False,"Price and volume must be numbers")
+    
+    if price <= 0 or volume <= 0:
+        return (False,"Use positive numbers")
+    
+    return (True, None)
+
+
+def checkSymbol(symbol):
+    if symbol not in LIST_SYMBOL:
+        return (False, f"{symbol} is not a real symbol")
+    return (True, None)
+
+
+def createErrorMessage(*msg):
+    errorMsg = ""
+    for i in msg:
+        if i:
+            errorMsg += i + "; "
+    
+    return errorMsg
 
 
 #----------HELPERS TRADES-----------------------
@@ -91,23 +118,6 @@ def getInfoPositions(key, symbol=""):
 
 
 
-
-
-
-
-
-
-
-def addTradeLog(trade):
-    return
-
-def createBuyOrder(price, volume):
-    conn, cursor = get_db()
-    cursor.execute("INSERT INTO order_book (side, price, quantity) VALUES ('B', %s, %s)", ( price, volume))
-    conn.commit()
-    conn.close()
-
-
 def checkPosition(key,stock):
     conn, cursor = get_db()
     cursor.execute("SELECT * FROM position WHERE userID = %s AND stock = %s", (key, stock))
@@ -117,11 +127,7 @@ def checkPosition(key,stock):
     conn.close()
     return volume
 
-def checkMoney(key):
-    conn, cursor = get_db()
-    cursor.execute("SELECT * FROM position WHERE userID = %s AND stock = %s", (key, stock))
-    row = cursor.fetchall()
-    return True
+
 
 def updatePosition():
     return
@@ -129,7 +135,7 @@ def updatePosition():
 
 def showTradeLog():
     conn, cursor = get_db()
-    cursor.execute("SELECT * FROM tarde_log")
+    cursor.execute("SELECT * FROM trade_log")
     rows = cursor.fetchall()
     for row in rows:
         print(row)
@@ -158,11 +164,17 @@ def getPositions(key,symbol=""):
     return checkUser(key)
 
 def createOrder(orderDict):
-    
-    if checkUser(orderDict["key"]):
+    symbol = orderDict["sym"].upper()
+
+    verifUser, msgKey = checkUser(orderDict["key"])
+    verifNum, msgNum = checkNumbers(orderDict["price"],orderDict["vol"] )
+    verifSym, msgSym = checkSymbol(symbol)
+
+
+    if verifUser and verifNum and verifSym:
         print("[API-KEY]: Authorized")
         ORDER_BOOK = OrderBook(getInfoTradesOB(orderDict["sym"], orderDict["key"]))
-        newOrder = Order(orderDict["side"],orderDict["sym"],int(orderDict["price"]),int(orderDict["vol"]),orderDict["key"])
+        newOrder = Order(orderDict["side"],symbol,int(orderDict["price"]),int(orderDict["vol"]),orderDict["key"])
         verif, msg = newOrder.checkOrderBalance()
         if verif:
             trades, reste = ORDER_BOOK.matchOrder(newOrder)
@@ -178,8 +190,12 @@ def createOrder(orderDict):
             return result
         else:
             return {"reste": None, "trades": None, "error": msg}
+    
+    
+    errMsg = createErrorMessage(msgKey, msgNum, msgSym)
+    
     print("[API-KEY]: Refused")
-    return {"reste": None, "trades": None, "error":f"key: {orderDict["key"]} not in db"}
+    return {"reste": None, "trades": None, "error": errMsg}
     
 
 
