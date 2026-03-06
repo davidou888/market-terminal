@@ -1,6 +1,5 @@
 CREATE TABLE IF NOT EXISTS users (
-    id INT AUTO_INCREMENT PRIMARY KEY, /*fuck that*/
-    api_key VARCHAR(100) UNIQUE NOT NULL,
+    api_key VARCHAR(100) PRIMARY KEY NOT NULL,
     username VARCHAR(50) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,   
     balance DECIMAL(15,2) DEFAULT 10000.00,
@@ -28,8 +27,8 @@ CREATE TABLE IF NOT EXISTS positions (
 
 CREATE TABLE IF NOT EXISTS trade_log (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    buyer_key VARCHAR(64),
-    seller_key VARCHAR(64),
+    buy_order_id VARCHAR(64),
+    sell_order_id VARCHAR(64),
     /*order ids ?*/
     symbol VARCHAR(20) NOT NULL,
     price DECIMAL(15,4) NOT NULL,

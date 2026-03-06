@@ -37,14 +37,18 @@ def alterOrderOB(order):
 
 
 def getMoneyUser(apiKey):
+   print(f"[GET MONEY]: for {apiKey}")
    conn, cursor = get_db()
    cursor.execute("SELECT balance FROM users WHERE api_key = %s", (apiKey,))
    row = cursor.fetchall()
+   print(f"[GET MONEY]: balance = {row[0][0]}")
    conn.close()
    return int(row[0][0])
    
 
 def updateBalance(trade):
+   print("SAK:",trade.sellerApiKey)
+   print("BAK:",trade.buyerApiKey)
    newBalanceSeller = getMoneyUser(trade.sellerApiKey) + (trade.quantity * trade.price)
    newBalanceBuyer = getMoneyUser(trade.buyerApiKey) - (trade.quantity * trade.price)
    print(f"Seller: {newBalanceSeller}")
@@ -208,9 +212,13 @@ class OrderBook:
          while queue and remainder.volume > 0 and \
             ((order.side == 'B' and order.price >= price) or \
             (order.side == 'S' and order.price <= price)):
-            
-            match_order = Order(*queue[0][1:5], queue[0][6], queue[0][0])
+            print("queue", queue[0])
+            match_order = Order(*queue[0][1:5], queue[0][5], queue[0][0])
             traded_vol = min(remainder.volume, match_order.volume)
+            print(f"rem: side:{remainder.side}; key: {remainder.userKey}")
+            print(f"match: side:{match_order.side}; key: {match_order.userKey}; time:{match_order.timestamp}")
+            mad = match_order.to_dict()
+            print("mad",mad.items())
             trades.append(Trade(remainder if order.side == "B" else match_order, 
                     match_order if order.side == "B" else remainder,
                     price, traded_vol))
