@@ -3,7 +3,7 @@
 //  Connects the UI to Flask-SocketIO backend
 // ─────────────────────────────────────────────────────────────────
 
-const SYMBOLS     = ['GOOGL', 'ETHUSDT', 'BNBUSDT'];
+const SYMBOLS     = ["GOOGL", "AMZN"];
 let activeSymbol  = SYMBOLS[0];
 let currentSide   = 'buy';
 let userKey       = sessionStorage.getItem('api_key');
@@ -196,7 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initSymbolTabs();
   initChart();
   startTimer();
-  console.log(activeSymbol)
+  console.log("Activesym: " + activeSymbol)
   if (activeSymbol) {
     document.getElementById('orderSym').value   = activeSymbol;
     document.getElementById('book-sym').textContent = activeSymbol;

@@ -1,7 +1,6 @@
 import time
-from sortedcontainers import SortedDict
+from sortedcontainers import SortedDict # pyright: ignore[reportMissingImports]
 from collections import deque
-import itertools
 import uuid
 from extension import socketio
 from datetime import datetime
@@ -12,14 +11,14 @@ from config import get_db
 
 
 
-def addOrderDB(order):
+def addOrderOB(order):
     conn, cursor = get_db()
     cursor.execute("INSERT INTO order_book (id,side,symbol, price, quantity, user_api_key) VALUES (%s,%s, %s, %s, %s, %s)", (order.id,order.side,order.symbol, order.price, order.volume, order.userKey))
     conn.commit()
     conn.close()
     print(f"[DB]: added order ID:{order.id} to order_book" )
 
-def delOrderDB(order):
+def delOrderOB(order):
    conn, cursor = get_db()
    cursor.execute("DELETE FROM order_book WHERE id = %s", (order.id,))
    conn.commit()
@@ -27,7 +26,7 @@ def delOrderDB(order):
    print(f"[DB]: deleted order ID:{order.id} from order_book" )
 
 
-def alterOrderDB(order):
+def alterOrderOB(order):
    
    print(f"order.vol = {order.volume}")
    conn, cursor = get_db()
@@ -35,6 +34,31 @@ def alterOrderDB(order):
    conn.commit()
    conn.close()
    print(f"[DB]: updated order ID:{order.id} from order_book to have vol: {order.volume}" )
+
+
+def getMoneyUser(apiKey):
+   conn, cursor = get_db()
+   cursor.execute("SELECT balance FROM users WHERE api_key = %s", (apiKey,))
+   row = cursor.fetchall()
+   conn.close()
+   return int(row[0][0])
+   
+
+def updateBalance(trade):
+   newBalanceSeller = getMoneyUser(trade.sellerApiKey) + (trade.quantity * trade.price)
+   newBalanceBuyer = getMoneyUser(trade.buyerApiKey) - (trade.quantity * trade.price)
+   print(f"Seller: {newBalanceSeller}")
+   print(f"Buyer: {newBalanceBuyer}")
+   conn, cursor = get_db()
+   cursor.execute("UPDATE users SET balance= %s WHERE api_key=%s", (newBalanceSeller, trade.sellerApiKey))
+   conn.commit()
+   cursor.execute("UPDATE users SET balance= %s WHERE api_key=%s", (newBalanceBuyer, trade.buyerApiKey))
+   conn.commit()
+   conn.close()
+
+
+
+   
 
 
 
@@ -64,8 +88,31 @@ class Order:
          "timestamp": str(self.timestamp),
       }
 
-   def updateVol(self,newVol):
-       self.volume = newVol
+
+
+
+   def updateVol(self,tradedVol):
+       self.volume -= tradedVol
+   
+   def checkOrderBalance(self):
+      if self.side == "S":
+         return (True,"No checks needed")
+      
+      conn, cursor = get_db()
+      cursor.execute("SELECT balance FROM users WHERE api_key = %s", (self.userKey,))
+      row = cursor.fetchall()
+      if len(row) != 1:
+         return (False,"user key invalid")
+      else:
+         if int(row[0][0]) - (self.price * self.volume)>=0:
+            return (True, f"user has {int(row[0][0])}$ and will have {int(row[0][0]) - (self.price * self.volume)}$")
+         else:
+            return (False, f"INSUF. FUNDS: user has {int(row[0][0])}$ and wants to spend {(self.price * self.volume)}$")
+         
+      
+
+      conn.close()
+      
 
    def __str__(self):
     return f"[Order]: {self.volume} stocks of {self.symbol} at {self.price} made at {self.timestamp}"
@@ -74,7 +121,9 @@ class Order:
 class Trade:
    def __init__(self, buy_order: Order, sell_order: Order, price, quantity):
       self.buy_order_id = buy_order.id
+      self.buyerApiKey = buy_order.userKey
       self.sell_order_id = sell_order.id
+      self.sellerApiKey = sell_order.userKey
       self.symbol = buy_order.symbol
       self.price = price
       self.quantity = quantity
@@ -97,6 +146,12 @@ class Trade:
       conn.commit()
       conn.close()
       print(f"[DB]: added trade to trade_log" )
+
+   
+   def makeTrade(self):
+      self.logTrade()
+      updateBalance(self)
+
 
 
 
@@ -142,17 +197,7 @@ class OrderBook:
    def matchOrder(self,order: Order):
       trades = []
       remainder: Order = order
-
-
-      #print(f"remainder id: {remainder.id}")
       opposite = self.bids if order.side == "S" else self.asks
-
-      print(f"Opposite: {opposite}")
-
-      
-
-      #print(f"[DEBUG] order: {order.side} {order.price} vol={getattr(order, 'volume', None) or getattr(order, 'quantity', None)}")
-      #print(f"[DEBUG] opposite book: {dict(opposite)}")
 
       for price, queue in list(opposite.items()):
          if (order.side == 'B' and order.price < price) or \
@@ -165,25 +210,25 @@ class OrderBook:
             (order.side == 'S' and order.price <= price)):
             
             match_order = Order(*queue[0][1:5], queue[0][6], queue[0][0])
-            #print(f"match order id: {match_order.id}")
             traded_vol = min(remainder.volume, match_order.volume)
-            #print("[TRADE]: Trade happend !")
             trades.append(Trade(remainder if order.side == "B" else match_order, 
                     match_order if order.side == "B" else remainder,
                     price, traded_vol))
+            
             #on envoie un event socket au CLIENT pour dire qu'un trade a eu lieu, avec les infos du trade
             socketio.emit("made_trade", {"symbol": order.symbol, "quantity": float(traded_vol), "price": float(price)})
             print("[TRADE]: Trade happend !")
 
-            remainder.volume -= traded_vol
-            match_order.volume -= traded_vol
+            remainder.updateVol(traded_vol)
+            match_order.updateVol(traded_vol)
+
             if match_order.volume == 0:
                print("should delete")
-               delOrderDB(match_order)
+               delOrderOB(match_order)
                queue.popleft()
             else:
                print("should alter")
-               alterOrderDB(match_order)
+               alterOrderOB(match_order)
 
          
          if not queue:
@@ -193,10 +238,11 @@ class OrderBook:
             break
       
       if remainder.volume > 0:
-         addOrderDB(remainder)
+         addOrderOB(remainder)
       
       for trade in trades:
-         trade.logTrade()
+         trade.makeTrade()
+         
 
       return trades, remainder if remainder.volume > 0 else None
 
