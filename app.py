@@ -10,6 +10,7 @@ from extension import socketio
 from datetime import datetime, timedelta
 from flask import jsonify
 from services.trade import createOrder, getTrades, getPositions
+from services.market import createGame
 
 
 
@@ -82,14 +83,15 @@ def post_order():
     result = createOrder(data)
     return jsonify(result)
 
-@app.route("/login", methods=["POST"])
-def login():
-    return    
-    
 @app.route("/auth")
 def auth_page():
     return render_template("login.html")
 #register blueprint for auth routes
+
+@app.route("/admin/start-game")
+def start_game():
+    createGame()
+    return jsonify({"status": "Game started"})
 
 app.register_blueprint(auth)
 # ── Entry point ────────────────────────────────────────────────────────────────

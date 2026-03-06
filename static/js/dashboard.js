@@ -48,6 +48,14 @@ socket.on('trade_result', (data) => {
   // TODO: update portfolio from response
 });
 
+// Game State Updates
+socket.on('time_update', (data) => {
+  const { time_left } = data;
+  const m = Math.floor(time_left / 60).toString().padStart(2, '0');
+  const s = (time_left % 60).toString().padStart(2, '0');
+  document.getElementById('timer').textContent = `${m}:${s}`;
+});
+
 // ─────────────────────────────────────────────────────────────────
 //  CHART (QFChart candlestick)
 // ─────────────────────────────────────────────────────────────────
@@ -155,21 +163,6 @@ function placeOrder() {
   .then(data => console.log('[ORDER]', data))
   .catch(err => console.error('[ORDER ERROR]', err));
 }
-// ─────────────────────────────────────────────────────────────────
-//  TIMER
-// ─────────────────────────────────────────────────────────────────
-let sessionSeconds = 10 * 60;
-
-function startTimer() {
-  setInterval(() => {
-    if (sessionSeconds <= 0) return;
-    sessionSeconds--;
-    const m = Math.floor(sessionSeconds / 60).toString().padStart(2, '0');
-    const s = (sessionSeconds % 60).toString().padStart(2, '0');
-    document.getElementById('timer').textContent = `${m}:${s}`;
-  }, 1000);
-}
-
 // ─────────────────────────────────────────────────────────────────
 //  SESSION BADGE
 // ─────────────────────────────────────────────────────────────────
