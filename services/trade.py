@@ -24,7 +24,7 @@ def checkUser(key):
     if not rows:
         print("[CONN]: refused")
         print(f"[ERROR]: key {key} not in database")
-        return ValueError("Invalid API key")
+        return False
     else:
         print("[CONN]: Initialized...")
         return True
@@ -59,7 +59,7 @@ def getInfoTrades(symbol=""):
 def getInfoTradesOB(symbol, key):
     print("[SQL]: get order_book with symbol:", symbol)
     conn, cursor = get_db()
-    cursor.execute("SELECT * FROM order_book WHERE symbol=%s AND user_api_key != %s", (symbol,key))
+    cursor.execute("SELECT * FROM order_book WHERE symbol=%s AND user_api_key != %s ORDER BY price, created_at", (symbol,key))
     rows = cursor.fetchall()
     conn.close()
     result = [lst for lst in rows]
@@ -171,38 +171,18 @@ def createOrder(orderDict):
                 #addOrderDB(reste)
                 print("Il en reste")
             result = {
+                "reste":  reste.to_dict() if reste else None,
                 "trades": [t.to_dict() for t in trades],
-                "reste":  reste.to_dict() if reste else None
+                "error": None
             }
             return result
         else:
-            print("[BALANCE]:", msg)
+            return {"reste": None, "trades": None, "error": msg}
     print("[API-KEY]: Refused")
-    return {"reste":f"key: {orderDict["key"]} not in db", "trades": "None"}
+    return {"reste": None, "trades": None, "error":f"key: {orderDict["key"]} not in db"}
     
 
 
-
-#createOrder("B", 104, 10)
-
+#Format {"reste": Order(), "trades": liste[Order,Order,...], "error": "str" (optional), }
 
 
-
-
-
-#conn, cursor = get_db()
-#
-#
-#cursor.execute("SELECT * FROM order_book WHERE side='B'")
-#rows = cursor.fetchall()
-#
-##for row in rows:
-##    print("[BUY] prix:", float(row[2]), "volume", row[3])
-#
-#
-#cursor.execute("SELECT * FROM order_book WHERE side='S'")
-#rows = cursor.fetchall()
-##for row in rows:
-##    print("[SELL] prix:", float(row[2]), "volume", row[3])
-
-#conn.close()
