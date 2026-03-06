@@ -11,23 +11,4 @@ def on_connect():
 @socketio.on('disconnect')
 def on_disconnect():
     print(f"[SOCKET] Client disconnected: {request.sid}")
-
-@socketio.on('buy')
-def on_buy(data):
-    data["side"] = "B"
-    result = createOrder(data)
-    if result:
-        emit("trade_result", {"ok": True, "msg": result})
-    else:
-        emit("trade_result", {"ok": False, "msg": "Failed to create order"})
-
-@socketio.on('sell')
-def on_sell(data):
-    data["side"] = "S"
-    result = createOrder(data)
-    if result:
-        emit("trade_result", {"ok": True, "msg": result})
-    else:
-        emit("trade_result", {"ok": False, "msg": "Failed to create order"})
-
         
