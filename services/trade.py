@@ -22,6 +22,7 @@ def getSymbolsData():
     conn.close()
     return rows
 
+
 #-----------HELPERS MAIN----------------------
 
 

@@ -21,7 +21,8 @@ def login():
         #on vérifie le mot de passe avec bcrypt (hash)
         if bcrypt.checkpw(password.encode('utf-8'), row[2].encode('utf-8')):
             print(f"[AUTH]: User '{username}' logged in successfully")
-            return jsonify({"ok": True, "api_key": row[3]})
+            conn.close()
+            return jsonify({"ok": True, "api_key": row[0]})
         else:
             print(f"[AUTH]: Failed login attempt for user '{username}'")
             return jsonify({"ok": False, "error": "invalid password"})

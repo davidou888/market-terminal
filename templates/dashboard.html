@@ -23,7 +23,8 @@
 <header>
   <div class="logo">market<span>-terminal</span></div>
   <div class="header-right">
-    <div class="timer">Session ends in <strong id="timer">10:00</strong></div>
+    <div class="timer">Session ends in <strong id="timer">--:--</strong></div>
+    <button id="theme-toggle" onclick="toggleTheme()" style="background:none;border:1px solid var(--border);border-radius:var(--radius);padding:4px 10px;cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--muted);">☀ light</button>
     <div class="session-badge">LIVE</div>
     <div class="user-info" id="user-info">— / $10,000.00</div>
   </div>
@@ -43,14 +44,17 @@
 
   <!-- Chart -->
   <div class="panel chart-panel">
+    <div class="chart-header" style="display:flex; align-items:center; justify-content:space-between; padding:10px 16px 0 16px;">
+      <span id="chart-sym-label" style="font-family:var(--mono); font-size:14px; font-weight:500; letter-spacing:-0.02em;">—</span>
+    </div>
     <div class="chart-stats">
       <div class="stat"><span class="stat-label">Last</span><span class="stat-value" id="stat-last">—</span></div>
       <div class="stat"><span class="stat-label">Open</span><span class="stat-value" id="stat-open">—</span></div>
       <div class="stat"><span class="stat-label">High</span><span class="stat-value up" id="stat-high">—</span></div>
       <div class="stat"><span class="stat-label">Low</span><span class="stat-value down" id="stat-low">—</span></div>
-      <div class="stat"><span class="stat-label">Volume</span><span class="stat-value" id="stat-vol">—</span></div>
+      <div class="stat"><span class="stat-label">Change</span><span class="stat-value" id="stat-change">—</span></div>
     </div>
-    <div id="qf-mount" style="flex:1; min-height:0;"></div>
+    <div id="qf-mount" style="flex:1; min-height:400px; height:400px;"></div>
   </div>
 
   <!-- Order book -->
@@ -87,11 +91,19 @@
         </div>
         <div class="field">
           <label>Price</label>
-          <input type="number" id="orderPrice" value="" step="0.01" oninput="updateSummary()">
+          <div class="num-input-wrap">
+            <button class="num-btn" onclick="stepInput('orderPrice',-1)">−</button>
+            <input type="number" id="orderPrice" value="" step="0.01" oninput="updateSummary()">
+            <button class="num-btn" onclick="stepInput('orderPrice',1)">+</button>
+          </div>
         </div>
         <div class="field">
           <label>Quantity</label>
-          <input type="number" id="orderQty" value="10" min="1" oninput="updateSummary()">
+          <div class="num-input-wrap">
+            <button class="num-btn" onclick="stepInput('orderQty',-1)">−</button>
+            <input type="number" id="orderQty" value="10" min="1" oninput="updateSummary()">
+            <button class="num-btn" onclick="stepInput('orderQty',1)">+</button>
+          </div>
         </div>
         <div class="order-summary">
           <div class="summary-row"><span class="key">Total</span><span class="val" id="summaryTotal">—</span></div>
