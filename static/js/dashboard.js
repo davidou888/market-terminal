@@ -3,14 +3,15 @@
 //  Connects the UI to Flask-SocketIO backend
 // ─────────────────────────────────────────────────────────────────
 
-let symbols     = [];
-let activeSymbol  = symbols[0];
+let symbols     = window.SYMBOLS || [];
+let activeSymbol  = symbols[0] || null;
 let currentSide   = 'buy';
 let userKey       = sessionStorage.getItem('api_key');
 let cashBalance   = 10000;
 
 // Per-symbol candle history for QFChart
 const candleHistory = {}; // { sym: [{time, open, high, low, close, volume}] }
+let chart = null;
 
 
 //
@@ -64,19 +65,51 @@ socket.on('time_update', (data) => {
 });
 
 // ─────────────────────────────────────────────────────────────────
-//  CHART (QFChart candlestick)
+//  CHART (QFChart)
 // ─────────────────────────────────────────────────────────────────
-let chart = null;
+let priceLineIndicator = null;
 
-function initChart() {
+function initChart(sym) {
   const el = document.getElementById('qf-mount');
   if (!el || typeof QFChart === 'undefined') return;
-  // Init with empty data
-  chart = new QFChart({
-    container: el,
-    theme: 'light',
-    data: [],
+  if (chart) { try { chart.destroy(); } catch(e) {} }
+  priceLineIndicator = null;
+  el.innerHTML = '';
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  chart = new QFChart.QFChart(el, {
+    height: '400px',
+    backgroundColor: dark ? '#1a1a18' : '#ffffff',
+    upColor:         dark ? '#2ecc71' : '#1a7a4a',
+    downColor:       dark ? '#e74c3c' : '#c0392b',
+    fontColor:       dark ? '#5a5a54' : '#9a9a94',
+    fontFamily: 'DM Mono, monospace',
+    watermark: false,
+    dataZoom: { visible: true, position: 'top', height: 6, start: 0, end: 100 },
   });
+
+  // Nom du symbole dans le header HTML (pas dans le chart)
+  const label = document.getElementById('chart-sym-label');
+  if (label) label.textContent = sym || activeSymbol || '';
+}
+
+function renderPriceLine(symbol) {
+  if (!chart || !candleHistory[symbol] || candleHistory[symbol].length === 0) return;
+  const candles = candleHistory[symbol];
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+
+  chart.setMarketData(candles);
+
+  const linePlots = {
+    Price: {
+      data: candles.map(c => ({ time: c.time, value: c.close })),
+      options: {
+        style: 'line',
+        color: dark ? '#2ecc71' : '#1a7a4a',
+        linewidth: 2,
+      },
+    },
+  };
+  priceLineIndicator = chart.addIndicator('Price', linePlots, { isOverlay: true });
 }
 
 function addTradeToChart(symbol, price, volume) {
@@ -89,26 +122,28 @@ function addTradeToChart(symbol, price, volume) {
   const last = candles[candles.length - 1];
 
   if (last && last.time === minuteTs) {
-    // Update current candle
-    last.high  = Math.max(last.high, price);
-    last.low   = Math.min(last.low,  price);
-    last.close = price;
+    last.high   = Math.max(last.high, price);
+    last.low    = Math.min(last.low,  price);
+    last.close  = price;
     last.volume += volume;
   } else {
-    // New candle
     candles.push({ time: minuteTs, open: price, high: price, low: price, close: price, volume });
     if (candles.length > 500) candles.shift();
   }
 
-  if (chart) chart.setData(candles);
+  // Update temps réel sans full re-render
+  if (chart && chart.chart) {
+    try {
+      const bar = candles[candles.length - 1];
+      if (priceLineIndicator) {
+        priceLineIndicator.updateData({ Price: { data: [{ time: bar.time, value: bar.close }] } });
+      }
+      chart.updateData([bar]);
+    } catch(e) { console.warn('[CHART] updateData skipped:', e.message); }
+  }
 
-  // Update stats bar
-  const c = candles[candles.length - 1];
-  document.getElementById('stat-last').textContent = fmtPrice(c.close);
-  document.getElementById('stat-open').textContent = fmtPrice(c.open);
-  document.getElementById('stat-high').textContent = fmtPrice(c.high);
-  document.getElementById('stat-low').textContent  = fmtPrice(c.low);
-  document.getElementById('stat-vol').textContent  = c.volume;
+  // Stats bar
+  updateStatsBar(candles);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -123,8 +158,31 @@ function initSymbolTabs() {
       document.getElementById('orderSym').value = activeSymbol;
       document.getElementById('book-sym').textContent = activeSymbol;
       updateSummary();
+      loadHistoricalData(activeSymbol);
+      if (candleHistory[activeSymbol]) updateStatsBar(candleHistory[activeSymbol]);
     });
   });
+}
+
+function updateStatsBar(candles) {
+  if (!candles || candles.length === 0) return;
+  const first = candles[0];
+  const last  = candles[candles.length - 1];
+  const high  = Math.max(...candles.map(c => c.high));
+  const low   = Math.min(...candles.map(c => c.low));
+  const change = last.close - first.open;
+  const changePct = (change / first.open * 100);
+  const changeStr = (change >= 0 ? '+' : '') + fmtPrice(change) + ' (' + (changePct >= 0 ? '+' : '') + changePct.toFixed(2) + '%)';
+
+  document.getElementById('stat-last').textContent = fmtPrice(last.close);
+  document.getElementById('stat-open').textContent = fmtPrice(first.open);
+  document.getElementById('stat-high').textContent = fmtPrice(high);
+  document.getElementById('stat-low').textContent  = fmtPrice(low);
+  const changeEl = document.getElementById('stat-change');
+  if (changeEl) {
+    changeEl.textContent = changeStr;
+    changeEl.className = 'stat-value ' + (change >= 0 ? 'up' : 'down');
+  }
 }
 
 function updateSymbolPrice(symbol, price) {
@@ -150,6 +208,7 @@ function renderSymbolTabs(symbols) {
       document.getElementById('orderSym').value = activeSymbol;
       document.getElementById('book-sym').textContent = activeSymbol;
       updateSummary();
+      loadHistoricalData(activeSymbol);
     });
     container.appendChild(tab);
   });
@@ -174,6 +233,17 @@ function updateSummary() {
   document.getElementById('summaryTotal').textContent = '$' + (price * qty).toFixed(2);
   document.getElementById('submitBtn').textContent =
     `${currentSide.charAt(0).toUpperCase() + currentSide.slice(1)} ${activeSymbol}`;
+}
+
+function stepInput(id, dir) {
+  const el = document.getElementById(id);
+  const step = parseFloat(el.step) || 1;
+  const val = parseFloat(el.value) || 0;
+  const min = parseFloat(el.min);
+  let next = Math.round((val + dir * step) * 10000) / 10000;
+  if (!isNaN(min)) next = Math.max(min, next);
+  el.value = next;
+  updateSummary();
 }
 
 function placeOrder() {
@@ -202,6 +272,63 @@ function updateSessionBadge(connected) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+//  HISTORICAL DATA
+// ─────────────────────────────────────────────────────────────────
+async function loadHistoricalData(symbol) {
+  try {
+    const res = await fetch(`/data/${symbol}`);
+    const data = await res.json();
+    if (!Array.isArray(data)) {
+      console.warn(`[CHART] No CSV data for ${symbol}`);
+      return;
+    }
+    candleHistory[symbol] = data.map(d => ({
+      time:   new Date(d.time).getTime(),
+      open:   d.close,
+      high:   d.close,
+      low:    d.close,
+      close:  d.close,
+      volume: 0
+    }));
+    // Mettre à jour le prix dans le tab + stats bar avec les données CSV
+    const hist = candleHistory[symbol];
+    const last = hist[hist.length - 1];
+    const first = hist[0];
+    if (last) updateSymbolPrice(symbol, last.close);
+    if (symbol === activeSymbol && last && first) updateStatsBar(hist);
+
+    if (symbol === activeSymbol) {
+      initChart(symbol);
+      renderPriceLine(symbol);
+    }
+  } catch(e) {
+    console.error('[CHART] Failed to load data for', symbol, e);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  THEME
+// ─────────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const next = isDark ? 'light' : 'dark';
+  applyTheme(next);
+  localStorage.setItem('theme', next);
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = theme === 'dark' ? '☀ light' : '☾ dark';
+
+  // Re-init chart avec les bonnes couleurs
+  if (activeSymbol) {
+    initChart(activeSymbol);
+    renderPriceLine(activeSymbol);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
 //  UTILS
 // ─────────────────────────────────────────────────────────────────
 function fmtPrice(p) {
@@ -213,9 +340,14 @@ function fmtPrice(p) {
 //  INIT
 // ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  const savedTheme = localStorage.getItem('theme') || 'light';
+  document.documentElement.setAttribute('data-theme', savedTheme);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = savedTheme === 'dark' ? '☀ light' : '☾ dark';
+
   initSymbolTabs();
-  initChart();
-  startTimer();
+  symbols.forEach(sym => loadHistoricalData(sym));
+  if (!activeSymbol) initChart();
   console.log("Activesym: " + activeSymbol)
   if (activeSymbol) {
     document.getElementById('orderSym').value   = activeSymbol;

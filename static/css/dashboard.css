@@ -13,6 +13,22 @@
     --radius:   6px;
     --mono:     'DM Mono', monospace;
     --sans:     'DM Sans', sans-serif;
+    --chart-bg: #ffffff;
+    --chart-fg: #1a7a4a;
+  }
+
+  [data-theme="dark"] {
+    --bg:       #0f0f0e;
+    --surface:  #1a1a18;
+    --border:   #2a2a28;
+    --text:     #e8e8e4;
+    --muted:    #5a5a54;
+    --green:    #2ecc71;
+    --green-bg: #0d2b1a;
+    --red:      #e74c3c;
+    --red-bg:   #2b0d0d;
+    --chart-bg: #1a1a18;
+    --chart-fg: #2ecc71;
   }
 
   body {
@@ -264,8 +280,52 @@
     color: var(--text);
     outline: none;
     transition: border-color 0.15s;
+    width: 100%;
   }
   .field input:focus { border-color: var(--text); background: var(--surface); }
+
+  /* Cacher spinners natifs */
+  .field input[type=number]::-webkit-inner-spin-button,
+  .field input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .field input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+
+  /* Wrapper avec boutons +/- custom */
+  .num-input-wrap {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--bg);
+    transition: border-color 0.15s;
+  }
+  .num-input-wrap:focus-within { border-color: var(--text); }
+  .num-input-wrap input {
+    border: none !important;
+    border-radius: 0 !important;
+    flex: 1;
+    min-width: 0;
+    background: transparent !important;
+  }
+  .num-btn {
+    width: 28px;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    border-left: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.1s, color 0.1s;
+    font-family: var(--mono);
+  }
+  .num-btn:first-child { border-left: none; border-right: 1px solid var(--border); }
+  .num-btn:hover { background: var(--border); color: var(--text); }
 
   .order-summary {
     background: var(--bg);

@@ -21,7 +21,7 @@ def countdown(time_sec=0):
         #broadcast time update to clients
         socketio.emit("time_update", {"time_left": gameState["time_left"]})
     gameState["running"] = False
-    socketio.emit("game_end", {"running": gameState["running"]})
+    socketio.emit("game_end", {"running": gameState["running"], "symbols": [{"name": s.name, "final_price": s.final_price} for s in gameState["symbols"]]})
 
 """
 --------------------------------------------

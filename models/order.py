@@ -4,9 +4,10 @@ from collections import deque
 import uuid
 from extension import socketio
 from datetime import datetime
-
+from gevent.lock import Semaphore
 from config import get_db
 
+_lock = Semaphore()  # Global lock for synchronizing access to shared resources
 
 
 
@@ -199,59 +200,60 @@ class OrderBook:
 
 
    def matchOrder(self,order: Order):
-      trades = []
-      remainder: Order = order
-      opposite = self.bids if order.side == "S" else self.asks
+      with _lock:  # Ensure that only one thread can execute this block at a time
+         trades = []
+         remainder: Order = order
+         opposite = self.bids if order.side == "S" else self.asks
 
-      for price, queue in list(opposite.items()):
-         if (order.side == 'B' and order.price < price) or \
-            (order.side == 'S' and order.price > price):
-            print("[TRADE]: No order found to match")
-            break
-         
-         while queue and remainder.volume > 0 and \
-            ((order.side == 'B' and order.price >= price) or \
-            (order.side == 'S' and order.price <= price)):
-            print("queue", queue[0])
-            match_order = Order(*queue[0][1:5], queue[0][5], queue[0][0])
-            traded_vol = min(remainder.volume, match_order.volume)
-            print(f"rem: side:{remainder.side}; key: {remainder.userKey}")
-            print(f"match: side:{match_order.side}; key: {match_order.userKey}; time:{match_order.timestamp}")
-            mad = match_order.to_dict()
-            print("mad",mad.items())
-            trades.append(Trade(remainder if order.side == "B" else match_order, 
-                    match_order if order.side == "B" else remainder,
-                    price, traded_vol))
+         for price, queue in list(opposite.items()):
+            if (order.side == 'B' and order.price < price) or \
+               (order.side == 'S' and order.price > price):
+               print("[TRADE]: No order found to match")
+               break
             
-            #on envoie un event socket au CLIENT pour dire qu'un trade a eu lieu, avec les infos du trade
-            socketio.emit("made_trade", {"symbol": order.symbol, "quantity": float(traded_vol), "price": float(price)})
-            print("[TRADE]: Trade happend !")
+            while queue and remainder.volume > 0 and \
+               ((order.side == 'B' and order.price >= price) or \
+               (order.side == 'S' and order.price <= price)):
+               print("queue", queue[0])
+               match_order = Order(*queue[0][1:5], queue[0][5], queue[0][0])
+               traded_vol = min(remainder.volume, match_order.volume)
+               print(f"rem: side:{remainder.side}; key: {remainder.userKey}")
+               print(f"match: side:{match_order.side}; key: {match_order.userKey}; time:{match_order.timestamp}")
+               mad = match_order.to_dict()
+               print("mad",mad.items())
+               trades.append(Trade(remainder if order.side == "B" else match_order, 
+                     match_order if order.side == "B" else remainder,
+                     price, traded_vol))
+               
+               #on envoie un event socket au CLIENT pour dire qu'un trade a eu lieu, avec les infos du trade
+               socketio.emit("made_trade", {"symbol": order.symbol, "quantity": float(traded_vol), "price": float(price)})
+               print("[TRADE]: Trade happend !")
 
-            remainder.updateVol(traded_vol)
-            match_order.updateVol(traded_vol)
+               remainder.updateVol(traded_vol)
+               match_order.updateVol(traded_vol)
 
-            if match_order.volume == 0:
-               print("should delete")
-               delOrderOB(match_order)
-               queue.popleft()
-            else:
-               print("should alter")
-               alterOrderOB(match_order)
+               if match_order.volume == 0:
+                  print("should delete")
+                  delOrderOB(match_order)
+                  queue.popleft()
+               else:
+                  print("should alter")
+                  alterOrderOB(match_order)
 
+            
+            if not queue:
+               del opposite[price]
+            
+            if remainder.volume == 0:
+               break
          
-         if not queue:
-            del opposite[price]
+         if remainder.volume > 0:
+            addOrderOB(remainder)
          
-         if remainder.volume == 0:
-            break
-      
-      if remainder.volume > 0:
-         addOrderOB(remainder)
-      
-      for trade in trades:
-         trade.makeTrade()
-         
+         for trade in trades:
+            trade.makeTrade()
+            
 
-      return trades, remainder if remainder.volume > 0 else None
+         return trades, remainder if remainder.volume > 0 else None
 
             

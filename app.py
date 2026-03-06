@@ -9,9 +9,10 @@ from flask import Flask, render_template, request
 from extension import socketio
 from datetime import datetime, timedelta
 from flask import jsonify
-from services.trade import createOrder, getTrades, getPositions
+from services.trade import createOrder, getTrades, getPositions, getSymbols
 from services.market import createGame
-
+import csv
+import os
 
 
 
@@ -33,7 +34,7 @@ from routes.auth import auth
 @app.route("/")
 def index():
     """Render the main dashboard, injecting the initial symbol list."""
-    return render_template("dashboard.html", symbols=["GOOGL", "AMZN"])
+    return render_template("dashboard.html", symbols=getSymbols())
 
 # This route allows the client-side JavaScript to send log messages that will appear in the server console, which is useful for debugging client-side code in environments where you don't have easy
 @app.route('/log', methods=['POST'])
@@ -88,10 +89,27 @@ def auth_page():
     return render_template("login.html")
 #register blueprint for auth routes
 
+@app.route("/api/symbols")
+def api_symbols():
+    return jsonify(getSymbols())
+
 @app.route("/admin/start-game")
 def start_game():
     createGame()
     return jsonify({"status": "Game started"})
+
+@app.route("/data/<symbol>")
+def get_data(symbol):
+    path = f"data/{symbol}.csv"
+    if not os.path.exists(path):
+        return jsonify({"error": "Symbol not found"}), 404
+    
+    result = []
+    with open(path) as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            result.append({"time": row["date"], "close": float(row["close_price"])})
+    return jsonify(result   )
 
 app.register_blueprint(auth)
 # ── Entry point ────────────────────────────────────────────────────────────────
