@@ -1,13 +1,26 @@
 from config import get_db
 import requests
 from models.order import *
-from extension import LIST_SYMBOL
-
 
 
 
 
 #----------HELPERS------------------------
+#-----------------HELPERS DB-------------------------
+
+def getSymbols():
+    conn, cursor = get_db()
+    cursor.execute("SELECT * FROM symbols")
+    rows = cursor.fetchall()
+    conn.close()
+    return [row[0] for row in rows]
+
+def getSymbolsData():
+    conn, cursor = get_db()
+    cursor.execute("SELECT name, start_price, final_price FROM symbols WHERE active = TRUE")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
 
 #-----------HELPERS MAIN----------------------
 
@@ -43,7 +56,7 @@ def checkNumbers(price, volume):
 
 
 def checkSymbol(symbol):
-    if symbol not in LIST_SYMBOL:
+    if symbol not in getSymbols():
         return (False, f"{symbol} is not a real symbol")
     return (True, None)
 
@@ -140,7 +153,6 @@ def showTradeLog():
     rows = cursor.fetchall()
     for row in rows:
         print(row)
-
 
 
 #-------------------MAIN FUNCTIONS----------------------

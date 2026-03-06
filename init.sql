@@ -36,3 +36,10 @@ CREATE TABLE IF NOT EXISTS trade_log (
     quantity DECIMAL(15,6) NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS symbols (
+    name VARCHAR(20) PRIMARY KEY,
+    start_price DECIMAL(15,4) NOT NULL,
+    final_price DECIMAL(15,4) NOT NULL,
+    active BOOLEAN DEFAULT FALSE
+);

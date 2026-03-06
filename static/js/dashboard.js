@@ -3,8 +3,8 @@
 //  Connects the UI to Flask-SocketIO backend
 // ─────────────────────────────────────────────────────────────────
 
-const SYMBOLS     = ["GOOGL", "AMZN"];
-let activeSymbol  = SYMBOLS[0];
+let symbols     = [];
+let activeSymbol  = symbols[0];
 let currentSide   = 'buy';
 let userKey       = sessionStorage.getItem('api_key');
 let cashBalance   = 10000;
@@ -48,6 +48,13 @@ socket.on('trade_result', (data) => {
   // TODO: update portfolio from response
 });
 
+socket.on('game_start', (data) => {
+  const { symbols: socket_symbols} = data;
+  socket_symbols.forEach(s => updateSymbolPrice(s.name, s.price));
+  symbols = socket_symbols.map(s => s.name);
+  activeSymbol = symbols[0];
+  renderSymbolTabs(socket_symbols);
+});
 // Game State Updates
 socket.on('time_update', (data) => {
   const { time_left } = data;
@@ -127,6 +134,26 @@ function updateSymbolPrice(symbol, price) {
     el.className = 'symbol-price up'; // TODO: compare to previous
   }
 }
+
+function renderSymbolTabs(symbols) {
+  const container = document.getElementById('symbol-bar');
+  container.innerHTML = '';
+  symbols.forEach(s => {
+    const tab = document.createElement('div');
+    tab.className = 'symbol-tab' + (s.name === activeSymbol ? ' active' : '');
+    tab.dataset.sym = s.name;
+    tab.textContent = s.name;
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.symbol-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      activeSymbol = s.name;
+      document.getElementById('orderSym').value = activeSymbol;
+      document.getElementById('book-sym').textContent = activeSymbol;
+      updateSummary();
+    });
+    container.appendChild(tab);
+  });
+} 
 
 // ─────────────────────────────────────────────────────────────────
 //  ORDER FORM

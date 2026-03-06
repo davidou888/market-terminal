@@ -1,5 +1,6 @@
 import gevent
 from extension import socketio
+from services.trade import getSymbolsData
 
 #------- GAME LOGIC -------#
 
@@ -32,10 +33,6 @@ class Symbols:
         self.price = price
         self.final_price = final_price
 
-Symbols_list = [
-    Symbols("GOOGL", 4000, 4000),
-    Symbols("AMZN", 3000, 3000)
-]
 """
 ---------------------------------------------
 """
@@ -43,7 +40,9 @@ Symbols_list = [
 def createGame():
     if not gameState["running"] and gameState["start_trigger"]:
         print("[GAME]: Starting new game...")
-        gameState["symbols"] = Symbols_list.copy()
+        rows = getSymbolsData()
+        gameState["symbols"] = [Symbols(r[0], float(r[1]), float(r[2])) for r in rows]
+        print(f"[GAME]: Symbols loaded: {[s.name for s in gameState['symbols']]}")
         #broadcast game start to clients with initial symbol list and game state
         socketio.emit("game_start", {"symbols": [{"name": s.name, "price": s.price} for s in gameState["symbols"]], "running": gameState["running"]})
         gevent.spawn(countdown, 600)  # Start a 10-minute countdown
