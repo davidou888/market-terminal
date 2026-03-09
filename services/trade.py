@@ -1,6 +1,8 @@
-from config import get_db
+from config import get_db, ADMIN_PSW
 import requests
 from models.order import *
+import re
+
 
 
 
@@ -44,6 +46,10 @@ def checkUser(key):
         return (True, None)
 
 def checkNumbers(price, volume):
+    
+    if not re.fullmatch(r'\d+(\.\d{1,2})?', str(price).strip()):
+        return (False, "Price must have at most 2 decimal places")
+
     try:
         price = float(price)
         volume = int(volume)
@@ -70,6 +76,14 @@ def createErrorMessage(*msg):
     
     return errorMsg
 
+
+
+
+def isAdmin(key):
+    if key == ADMIN_PSW:
+        return True
+    else:
+        return False
 
 #----------HELPERS TRADES-----------------------
 
@@ -209,6 +223,7 @@ def createOrder(orderDict):
     errMsg = createErrorMessage(msgKey, msgNum, msgSym)
     
     print("[API-KEY]: Refused")
+    print("[ERROR]:", errMsg)
     return {"reste": None, "trades": None, "error": errMsg}
     
 
