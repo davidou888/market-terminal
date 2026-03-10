@@ -38,7 +38,6 @@ def alterOrderOB(order):
 
 
 def getMoneyUser(apiKey):
-   print(f"[GET MONEY]: for {apiKey}")
    conn, cursor = get_db()
    cursor.execute("SELECT balance FROM users WHERE api_key = %s", (apiKey,))
    row = cursor.fetchall()
@@ -48,8 +47,6 @@ def getMoneyUser(apiKey):
    
 
 def updateBalance(trade):
-   print("SAK:",trade.sellerApiKey)
-   print("BAK:",trade.buyerApiKey)
    newBalanceSeller = getMoneyUser(trade.sellerApiKey) + (trade.quantity * trade.price)
    newBalanceBuyer = getMoneyUser(trade.buyerApiKey) - (trade.quantity * trade.price)
    print(f"Seller: {newBalanceSeller}")

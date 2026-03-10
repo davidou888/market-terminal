@@ -9,7 +9,7 @@ from flask import Flask, render_template, request
 from extension import socketio
 from datetime import datetime, timedelta
 from flask import jsonify
-from services.trade import createOrder, getTrades, getPositions, getSymbols
+from services.trade import createOrder, getTrades, getPositions, getSymbols, isAdmin
 from services.market import createGame
 import csv
 import os
@@ -82,7 +82,7 @@ def post_order():
         "vol":   request.args.get("vol"),
     }
     result = createOrder(data)
-    return jsonify(result)
+    return jsonify(result)      #Format {"reste": Order(), "trades": liste[Order,Order,...], "error": "str" (optional)}
 
 @app.route("/auth")
 def auth_page():
@@ -95,7 +95,11 @@ def api_symbols():
 
 @app.route("/admin/start-game")
 def start_game():
-    createGame()
+    if isAdmin(request.args.get("key")): 
+        createGame()
+        response = {"status": "Game started"}
+    else:
+        response = {"status": "You're not admin"}
     return jsonify({"status": "Game started"})
 
 @app.route("/data/<symbol>")
