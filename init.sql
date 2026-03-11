@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS positions (
     user_api_key VARCHAR(64)   NOT NULL,
     symbol       VARCHAR(20)   NOT NULL,
     quantity     DECIMAL(15,6) DEFAULT 0,
-    price        DECIMAL(15,4) NOT NULL,
+    avg_price        DECIMAL(15,4) NOT NULL,
     UNIQUE KEY (user_api_key, symbol)
 );
 
