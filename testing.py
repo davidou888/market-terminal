@@ -151,13 +151,28 @@ def test1():
         print(f"pos init sell was: {rowInitSell}")
         print(f"pos final sell is: {rowFinalSell}")
 
-    else:
-        print("What in the actual f*** ?")
 
 
-print("------start test1----")
-test1()
-print("----end test1-----")
+def test2():
+
+    user_api_key_buyer = "7ab0bc97-e610-4311-8e4a-299653161e7d"
+    user_api_key_seller = "38f1b94f-4e51-493c-93e1-2b1f47bd9fcb"
+    stock = "WABERSCOIN"
+
+    #response2 = requests.get(f"http://localhost:8000/post-order?key={user_api_key_buyer}&side=S&sym={stock}&price=120&vol=3")
+    response1 = requests.get(f"http://localhost:8000/post-order?key={user_api_key_seller}&side=B&sym={stock}&price=&vol=20")
+
+    #print(f"Status: {response.status_code}")
+    print(f"Raw1: {response1.text}")
+
+
+#print("------start test1----")
+#test1()
+#print("----end test1-----")
+
+print("------start test2----")
+test2()
+print("----end test2-----")
     
 
     
