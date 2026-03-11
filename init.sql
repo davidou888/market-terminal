@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     api_key       VARCHAR(100) PRIMARY KEY NOT NULL,
     username      VARCHAR(50)  UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    balance       DECIMAL(15,2)  DEFAULT 10000.00,
+    balance       DECIMAL(15,2)  DEFAULT 10p000.00,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS positions (
     user_api_key VARCHAR(64)   NOT NULL,
     symbol       VARCHAR(20)   NOT NULL,
     quantity     DECIMAL(15,6) DEFAULT 0,
-    price        DECIMAL(15,4) NOT NULL,
+    avg_price        DECIMAL(15,4) NOT NULL,
     UNIQUE KEY (user_api_key, symbol)
 );
 

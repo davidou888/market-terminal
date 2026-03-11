@@ -255,11 +255,52 @@ function placeOrder() {
 
   if (!price || !vol || !sym) return;
 
+  let notif = document.getElementById("notif");
   fetch(`/post-order?key=${userKey}&sym=${sym}&side=${apiSide}&price=${price}&vol=${vol}`)
+ 
   .then(r => r.json())
-  .then(data => console.log('[ORDER]', data))
-  .catch(err => console.error('[ORDER ERROR]', err));
+  //.then(data => console.log('[ORDER]', data))
+  //.catch(err => console.error('[ORDER ERROR]', err));
+  //{"reste": "Order", }
+  .then(data => {
+    if (data.error) {
+      NOTIFICATION(2500,`Order rejected: ${data.error}`,"");
+      return;
+    }
+    
+    if (data.trades?.length) {
+      data.trades.forEach(t => {
+        NOTIFICATION(2500, `Filled ${t.side} ${t.vol} ${t.sym} @ ${fmtPrice(t.price)}`);
+      });
+      console.log('[ORDER]: trades')
+    }
+    
+    if (data.reste) {
+      const r = data.reste;
+      NOTIFICATION(2500, "",`Reste: ${r.side} ${r.vol} ${r.sym} @ ${fmtPrice(r.price)}`);
+      console.log('[ORDER]: Reste')
+    }
+  });
+   console.log('[ORDER]')
 }
+
+// ─────────────────────────────────────────────────────────────────
+//  NOTIFICATION x thune
+// ─────────────────────────────────────────────────────────────────
+
+function NOTIFICATION(duration, trades = '', reste = '') {
+  //const notif     = document.getElementById('notif');
+  const tradesDiv = document.getElementById('trades');
+  const resteDiv  = document.getElementById('reste');
+
+  tradesDiv.innerHTML = trades;
+  resteDiv.innerHTML  = reste;
+
+  notif.classList.add('visible');
+  setTimeout(() => notif.classList.remove('visible'), duration);
+}
+
+
 // ─────────────────────────────────────────────────────────────────
 //  SESSION BADGE
 // ─────────────────────────────────────────────────────────────────
