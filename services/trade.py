@@ -45,7 +45,7 @@ def checkUser(key):
         print("[CONN]: Initialized...")
         return (True, None)
 
-def checkNumbers(price, volume):
+def checkNumbers(volume, price= 1):
     
     if not re.fullmatch(r'\d+(\.\d{1,2})?', str(price).strip()):
         return (False, "Price must have at most 2 decimal places")
@@ -195,14 +195,19 @@ def createOrder(orderDict):
     symbol = orderDict["sym"].upper()
 
     verifUser, msgKey = checkUser(orderDict["key"])
-    verifNum, msgNum = checkNumbers(orderDict["price"],orderDict["vol"] )
+    if orderDict["price"]:
+        verifNum, msgNum = checkNumbers(orderDict["vol"], orderDict["price"])
+        price = int(orderDict["price"])
+    else: 
+        verifNum, msgNum = checkNumbers(orderDict["vol"] )
+        price = None
     verifSym, msgSym = checkSymbol(symbol)
 
 
     if verifUser and verifNum and verifSym:
-        print("[API-KEY]: Authorized")
+        print("[VALUES]: Authorized")
         ORDER_BOOK = OrderBook(getInfoTradesOB(orderDict["sym"], orderDict["key"]))
-        newOrder = Order(orderDict["side"],symbol,int(orderDict["price"]),int(orderDict["vol"]),orderDict["key"])
+        newOrder = Order(orderDict["side"],symbol,price,int(orderDict["vol"]),orderDict["key"])
         verif, msg = newOrder.checkOrderBalance()
         if verif:
             trades, reste = ORDER_BOOK.matchOrder(newOrder)

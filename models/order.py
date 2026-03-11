@@ -9,15 +9,23 @@ from config import get_db
 
 _lock = Semaphore()  # Global lock for synchronizing access to shared resources
 
+LAST_PRICE = None
 
 
 
-def addOrderOB(order):
-    conn, cursor = get_db()
-    cursor.execute("INSERT INTO order_book (id,side,symbol, price, quantity, user_api_key) VALUES (%s,%s, %s, %s, %s, %s)", (order.id,order.side,order.symbol, order.price, order.volume, order.userKey))
-    conn.commit()
-    conn.close()
-    print(f"[DB]: added order ID:{order.id} to order_book" )
+def addOrderOB(order, lastPrice=None):
+   
+   price = order.price
+
+   if lastPrice:
+      price = lastPrice
+
+      
+   conn, cursor = get_db()
+   cursor.execute("INSERT INTO order_book (id,side,symbol, price, quantity, user_api_key) VALUES (%s,%s, %s, %s, %s, %s)", (order.id,order.side,order.symbol, price, order.volume, order.userKey))
+   conn.commit()
+   conn.close()
+   print(f"[DB]: added order ID:{order.id} to order_book" )
 
 def delOrderOB(order):
    conn, cursor = get_db()
@@ -100,20 +108,41 @@ class Order:
       if self.side == "S":
          return (True,"No checks needed")
       
+
+      price = self.price
+
       conn, cursor = get_db()
       cursor.execute("SELECT balance FROM users WHERE api_key = %s", (self.userKey,))
-      row = cursor.fetchall()
-      if len(row) != 1:
+      rowBal = cursor.fetchone()
+      
+
+
+      if not price: #check market value
+         cursor.execute("SELECT price FROM trade_log WHERE symbol = %s ORDER BY created_at DESC", (self.symbol,))
+         rowTradeLog = cursor.fetchone()
+
+         if not rowTradeLog: #if no market value is set yet
+            cursor.execute("SELECT start_price FROM symbols WHERE symbol = %s ", (self.symbol,))
+            rowTradeLog = cursor.fetchone()
+
+         price = float(rowTradeLog[0])
+
+
+      
+      conn.close()
+
+
+      if len(rowBal) != 1:
          return (False,"user key invalid")
       else:
-         if int(row[0][0]) - (self.price * self.volume)>=0:
-            return (True, f"user has {int(row[0][0])}$ and will have {int(row[0][0]) - (self.price * self.volume)}$")
+         
+         if float(rowBal[0]) - (price * self.volume)>=0:
+            return (True, f"user has {int(rowBal[0])}$ and will have {float(rowBal[0]) - (price * self.volume)}$")
          else:
-            return (False, f"INSUF. FUNDS: user has {int(row[0][0])}$ and wants to spend {(self.price * self.volume)}$")
+            return (False, f"INSUF. FUNDS: user has {int(rowBal[0])}$ and wants to spend {(price * self.volume)}$")
          
       
 
-      conn.close()
       
 
    def __str__(self):
@@ -276,27 +305,45 @@ class OrderBook:
 
 
    def matchOrder(self,order: Order):
+      global LAST_PRICE
       with _lock:  # Ensure that only one thread can execute this block at a time
          trades = []
          remainder: Order = order
          opposite = self.bids if order.side == "S" else self.asks
 
+         priceOrder = order.price
+
+         print(f"[DEBUG] priceOrder: {priceOrder}")
+
+         #print( f"[DEBUG] First condition: {order.price and((order.side == 'B' and order.price < price) or (order.side == 'S' and order.price > price))}")
+
          for price, queue in list(opposite.items()):
-            if (order.side == 'B' and order.price < price) or \
-               (order.side == 'S' and order.price > price):
+            print("[DEBUG] start loop1")
+            if order.price and\
+               ((order.side == 'B' and order.price < price) or \
+               (order.side == 'S' and order.price > price)) :
                print("[TRADE]: No order found to match")
                break
             
+            if not order.price:
+               priceOrder = price
+
+
+            print(f"[DEBUG] price={price}, priceOrder={priceOrder}, side={order.side}")
+            print(f"[DEBUG] queue empty={not queue}, volume={remainder.volume}")
+            print(f"[DEBUG] B condition={order.side == 'B' and priceOrder >= price}")
+            print(f"[DEBUG] S condition={order.side == 'S' and priceOrder <= price}")
+
             while queue and remainder.volume > 0 and \
-               ((order.side == 'B' and order.price >= price) or \
-               (order.side == 'S' and order.price <= price)):
+               ((order.side == 'B' and priceOrder >= price) or \
+               (order.side == 'S' and priceOrder <= price)):
+               print("[DEBUG] start loop2")
                print("queue", queue[0])
                match_order = Order(*queue[0][1:5], queue[0][5], queue[0][0])
                traded_vol = min(remainder.volume, match_order.volume)
                print(f"rem: side:{remainder.side}; key: {remainder.userKey}")
                print(f"match: side:{match_order.side}; key: {match_order.userKey}; time:{match_order.timestamp}")
-               mad = match_order.to_dict()
-               print("mad",mad.items())
+
                trades.append(Trade(remainder if order.side == "B" else match_order, 
                      match_order if order.side == "B" else remainder,
                      price, traded_vol))
@@ -316,6 +363,7 @@ class OrderBook:
                   print("should alter")
                   alterOrderOB(match_order)
 
+               LAST_PRICE = price
             
             if not queue:
                del opposite[price]
@@ -324,7 +372,12 @@ class OrderBook:
                break
          
          if remainder.volume > 0:
-            addOrderOB(remainder)
+            if not remainder.price:
+               print("Last PRice = ", LAST_PRICE)
+               remainder.price = LAST_PRICE
+               addOrderOB(remainder, LAST_PRICE)
+            else:
+               addOrderOB(remainder)
          
          for trade in trades:
             trade.makeTrade()
