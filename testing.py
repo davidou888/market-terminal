@@ -1,6 +1,7 @@
 import requests
 import random
 import time
+from config import get_db
 
 
 
@@ -94,7 +95,69 @@ def err5():
 
 
 
-listeTest = [err1(), err2(), err3(), err4(), err5() ]
 
-for i in listeTest:
-    i
+
+#listeTest = [err1(), err2(), err3(), err4(), err5() ]
+
+#for i in listeTest:
+#    i
+
+
+
+
+def test1():
+    testType = "in pos"
+    
+    user_api_key_buyer = "7ab0bc97-e610-4311-8e4a-299653161e7d"
+    user_api_key_seller = "38f1b94f-4e51-493c-93e1-2b1f47bd9fcb"
+    stock = "WABERSCOIN"
+
+    conn, cursor = get_db()
+    cursor.execute("SELECT * FROM positions WHERE user_api_key = %s AND symbol = %s", (user_api_key_buyer, stock))
+    rowInitBuy = cursor.fetchall()
+    cursor.execute("SELECT * FROM positions WHERE user_api_key = %s AND symbol = %s", (user_api_key_seller, stock))
+    rowInitSell = cursor.fetchall()
+    conn.close()
+
+
+    response1 = requests.get(f"http://localhost:8000/post-order?key={user_api_key_buyer}&side=B&sym={stock}&price=120&vol=10")
+    response2 = requests.get(f"http://localhost:8000/post-order?key={user_api_key_seller}&side=S&sym={stock}&price=120&vol=3")
+    #print(f"Status: {response.status_code}")
+    print(f"Raw1: {response1.text}")
+    print(f"Raw2: {response2.text}")
+
+    conn, cursor = get_db()
+    cursor.execute("SELECT * FROM positions WHERE user_api_key = %s AND symbol = %s", (user_api_key_buyer, stock))
+    rowFinalBuy = cursor.fetchall()
+    cursor.execute("SELECT * FROM positions WHERE user_api_key = %s AND symbol = %s", (user_api_key_seller, stock))
+    rowFinalSell = cursor.fetchall()
+    conn.close()
+
+    print(testType)
+
+    if not rowInitBuy:
+        print(f"new pos buyer: {rowFinalBuy}")
+    
+    if not rowInitSell:
+        print(f"new pos Seller: {rowFinalSell}")
+
+    if not rowFinalBuy or not rowFinalSell:
+        print(f"missing row final for buy: {rowFinalBuy} or sell: {rowFinalSell}")
+
+    if rowInitBuy:
+        print(f"pos init buy was: {rowInitBuy}")
+        print(f"pos final buy is: {rowFinalBuy}")
+    if rowInitSell:
+        print(f"pos init sell was: {rowInitSell}")
+        print(f"pos final sell is: {rowFinalSell}")
+
+    else:
+        print("What in the actual f*** ?")
+
+
+print("------start test1----")
+test1()
+print("----end test1-----")
+    
+
+    

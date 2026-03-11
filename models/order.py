@@ -60,7 +60,7 @@ def updateBalance(trade):
 
 
 
-   
+
 
 
 
@@ -142,6 +142,12 @@ class Trade:
          "timestamp":     str(self.timestamp),
       }
 
+   def makeTrade(self):
+         self.logTrade()
+         self.createPositions()
+         updateBalance(self)
+
+
    def logTrade(self):
       conn, cursor = get_db()
       cursor.execute("INSERT INTO trade_log (buy_order_id, sell_order_id, symbol, price, quantity, created_at) VALUES (%s,%s, %s, %s, %s, %s)", (self.buy_order_id,self.sell_order_id, self.symbol,self.price, self.quantity, self.timestamp))
@@ -149,12 +155,85 @@ class Trade:
       conn.close()
       print(f"[DB]: added trade to trade_log" )
 
+   def createPositions(self):
+      conn, cursor = get_db()
+      cursor.execute("SELECT user_api_key, symbol, quantity, avg_price FROM positions WHERE user_api_key = %s AND symbol = %s", (self.buyerApiKey, self.symbol))
+      rowBuyer = cursor.fetchall()
+      cursor.execute("SELECT user_api_key, symbol, quantity, avg_price FROM positions WHERE user_api_key = %s AND symbol = %s", (self.sellerApiKey, self.symbol))
+      rowSeller = cursor.fetchall()
+      #print(f"[GET MONEY]: balance = {row[0][0]}")
+      conn.close()
+
+      if rowBuyer:
+         PositionBuyer = Position(rowBuyer, self)
+         PositionBuyer.updatePosition()
+      
+      else:
+         PositionBuyer = Position(trade = self)
+         PositionBuyer.newPosition()
+      
+      if rowSeller:
+         PositionSeller = Position(rowSeller, self, seller = True)
+         PositionSeller.updatePosition()
+      else:
+         PositionSeller = Position(trade = self, seller = True)
+         PositionSeller.newPosition()
    
-   def makeTrade(self):
-      self.logTrade()
-      updateBalance(self)
+   
+def newAvg(oldAvg, oldSize, trade):
+   return ((oldAvg*oldSize) + (trade.price * trade.quantity))/(oldSize + trade.quantity)
 
 
+class Position:
+
+   def __init__(self, rowPosition= None, trade:Trade = None, seller = False):
+
+      if rowPosition:      
+         self.user_api_key = rowPosition[0][0]
+         self.symbol = rowPosition[0][1]
+         self.size = rowPosition[0][2] + (trade.quantity * (-1 if seller else 1))
+         if seller:
+            self.avg_price = rowPosition[0][3]
+         else:
+            self.avg_price = newAvg(rowPosition[0][3], rowPosition[0][2], trade)
+      
+      elif trade:
+         self.user_api_key = trade.sellerApiKey if seller else trade.buyerApiKey
+         self.symbol = trade.symbol
+         self.size = trade.quantity * (-1 if seller else 1)
+         self.avg_price = trade.price
+
+      else:
+          raise ValueError("rowPosition or trade required")
+
+
+
+
+
+   def updatePosition(self):
+      
+      conn, cursor = get_db()
+      cursor.execute("UPDATE positions SET avg_price= %s, quantity = %s WHERE user_api_key=%s AND symbol = %s ", (self.avg_price, self.size,  self.user_api_key, self.symbol))
+      conn.commit()
+      conn.close()
+      print(f"[POS]: updated for user key:{self.user_api_key} and sym: {self.symbol}; new size: {self.size}, new price: {self.avg_price}")
+      
+
+   def newPosition(self):
+      
+      conn, cursor = get_db()
+      cursor.execute("INSERT INTO positions (user_api_key, symbol, quantity, avg_price) VALUES (%s,%s, %s, %s)", (self.user_api_key,self.symbol, self.size, self.avg_price))
+      conn.commit()
+      conn.close()
+      print(f"[POS]: inserted user key:{self.user_api_key}, sym: {self.symbol}, size: {self.size}, price: {self.avg_price}")
+
+   
+
+      
+      
+
+
+      
 
 
 class OrderBook:
