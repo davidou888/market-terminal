@@ -75,11 +75,11 @@ def get_pos():
 @app.route("/post-order", methods=["GET"])
 def post_order():
     data = {
-        "key":   request.args.get("key"),
-        "side":  request.args.get("side"),
-        "sym":   request.args.get("sym"),
-        "price": request.args.get("price"),
-        "vol":   request.args.get("vol"),
+        "key":   request.args.get("key"), #needs protection
+        "side":  request.args.get("side"), #needs protection
+        "sym":   request.args.get("sym"), #needs protection
+        "price": request.args.get("price"), #already protected... i think
+        "vol":   request.args.get("vol"), #already protected... i think
     }
     result = createOrder(data)
     return jsonify(result)      #Format {"reste": Order(), "trades": liste[Order,Order,...], "error": "str" (optional)}

@@ -329,10 +329,10 @@ class OrderBook:
                priceOrder = price
 
 
-            print(f"[DEBUG] price={price}, priceOrder={priceOrder}, side={order.side}")
-            print(f"[DEBUG] queue empty={not queue}, volume={remainder.volume}")
-            print(f"[DEBUG] B condition={order.side == 'B' and priceOrder >= price}")
-            print(f"[DEBUG] S condition={order.side == 'S' and priceOrder <= price}")
+            #print(f"[DEBUG] price={price}, priceOrder={priceOrder}, side={order.side}")
+            #print(f"[DEBUG] queue empty={not queue}, volume={remainder.volume}")
+            #print(f"[DEBUG] B condition={order.side == 'B' and priceOrder >= price}")
+            #print(f"[DEBUG] S condition={order.side == 'S' and priceOrder <= price}")
 
             while queue and remainder.volume > 0 and \
                ((order.side == 'B' and priceOrder >= price) or \

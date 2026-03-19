@@ -1,188 +1,120 @@
 # Market Terminal
 
-A real-time market dashboard built with **Flask + Flask-SocketIO** (backend) and a
-pure **HTML/CSS/JS** frontend using **QFChart** (via ECharts) for candlestick rendering.
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)
 
----
+## What the project does
 
-## Architecture
-```
-Browser  ←──WebSocket (Socket.IO)──→  server.py  ←──WebSocket──→  Finnhub.io
-                                           │
-                                           └──HTTP (yfinance)──→  Yahoo Finance
-```
+Market Terminal is a real-time trading game and dashboard built with Flask + Flask-SocketIO, backed by a MySQL order book. It provides:
 
-The server uses **gevent** for async I/O. `monkey.patch_all()` is called at startup
-to make the standard library gevent-compatible. A `ThreadPool(4)` is used for
-parallel yfinance downloads so that multiple symbol requests don't block the event loop.
+- live symbol data + historical price series (`/data/<symbol>` from `data/*.csv`)
+- REST endpoints for trades, positions, and orders
+- secure user authentication (`/login`, `/register`) with API keys
+- game engine events (`game_start`, `time_update`, `game_end`)
+- order matching and trade log persistence via MySQL
 
----
+## Why this is useful
 
-## File Structure
-```
-.
-├── server.py               # Flask backend — Finnhub WS + yfinance history + disk cache
-├── templates/
-│   └── dashboard.html      # Frontend HTML — chart, ticker bar, favourites, trade log
-├── static/
-│   ├── css/
-│   │   └── dashboard.css   # Full UI theme (CSS custom properties, grid layout)
-│   └── js/
-│       └── dashboard.js    # Frontend logic — Socket.IO events, QFChart, favourites
-├── key.py                  # Returns Finnhub API token (gitignored)
-├── requirements.txt
-├── Dockerfile
-├── compose.yaml
-└── config.env              # Environment variables for Docker Compose
-```
+- great learning platform for trading systems and matching engines
+- simple architecture for rapid prototyping
+- supports asynchronous real-time updates
+- includes Docker support for consistent local/dev environments
+- friendly, extendable codebase for custom market rules
 
-> **Note:** `key.py` is gitignored. Create it manually:
-> ```python
-> def apiKey(): return "your_finnhub_token_here"
-> ```
+## Quickstart
 
----
+### prerequisites
 
-## Installation (local)
-```bash
-pip install flask flask-socketio websocket-client yfinance pandas gevent gevent-websocket
-```
+- Python 3.11+
+- Docker (recommended) or local MySQL
+- `pip install -r requirements.txt`
 
-### Running locally
-```bash
-python server.py
-```
-Open **http://localhost:8000**.
+### local launch
 
-### Running with Docker
-```bash
-docker compose up --build
-```
-App available at **http://localhost:8000**.
+1. copy/create `config.env`:
 
-Docker Compose starts two services:
-- **app** — the Flask/gevent server (port 8000)
-- **db** — a MySQL 8 instance (future persistence; not yet wired into `server.py`)
-
-Environment variables are read from `config.env`:
-```
-MYSQL_ROOT_PASSWORD=my-secret-pw
-MYSQL_DATABASE=my_database
+```env
+DB_HOST=localhost
 DB_USER=root
+DB_PASSWORD=aDmin@terminaL1263
+DB_NAME=trading
 ```
 
----
+2. initialize DB from SQL schema:
 
-## Server — `server.py`
-
-### Key constants
-
-| Constant | Default | Purpose |
-|---|---|---|
-| `SYMBOLS` | `["AAPL","AMZN","BINANCE:BTCUSDT"]` | Default symbols loaded on startup |
-| `HISTORY_PERIOD` | `"1y"` | yfinance history window |
-| `HISTORY_INTERVAL` | `"1d"` | yfinance bar interval (daily candles) |
-| `BATCH_SIZE` | `400` | Candles sent per `history_batch` emission |
-| `MAX_CANDLES_SERVER` | `4000` | Max candles kept per symbol in the disk cache |
-| `CACHE_TTL_HOURS` | `4` | Disk cache expiry (hours) |
-| `CACHE_DIR` | `/tmp/market_cache` | Directory for pickle cache files |
-
-### Components
-
-| Component | Purpose |
-|---|---|
-| `_to_yf_ticker(sym)` | Converts Finnhub format to yfinance (`BINANCE:BTCUSDT` → `BTC-USD`) |
-| `_load_cache(sym)` / `_save_cache(sym, candles)` | Pickle-based per-symbol disk cache with TTL |
-| `_append_candle(sym, candle)` | Merges a live tick into the disk cache (FIFO, 1-min bars) |
-| `emit_historical_candles(sym, sid?)` | Loads history (cache or yfinance), emits `history_batch` events in chunks |
-| `on_client_connect()` | Streams historical candles on connect; lazily starts the Finnhub thread on first connection |
-| `on_subscribe_symbol(payload)` | Validates + adds new tickers; broadcasts to all clients |
-| `start_finnhub()` | Background task running the Finnhub WebSocket with auto-reconnect |
-| `on_message(ws, msg)` | Parses Finnhub trade ticks, broadcasts `trade` events, updates disk cache |
-
-### Disk cache
-
-Historical OHLCV data is cached to `/tmp/market_cache/<symbol>.pkl` on first fetch and considered valid for `CACHE_TTL_HOURS` (4 h). Live Finnhub ticks are merged into the cache in real time via `_append_candle()`, keeping the cache hot between restarts without a full yfinance re-download.
-
----
-
-## Socket.IO Events
-
-### Server → Client
-
-| Event | Payload | Description |
-|---|---|---|
-| `history_batch` | `{symbol, candles: [{time,open,high,low,close,volume}, …]}` | One chunk of historical OHLCV bars (up to `BATCH_SIZE` candles) |
-| `history_done` | `{symbol}` | All historical candles for a symbol have been sent |
-| `trade` | `{symbol, price, volume, time}` | Raw Finnhub tick |
-| `symbol_ack` | `{symbol, ok, error?, already?}` | Response to `subscribe_symbol` |
-
-### Client → Server
-
-| Event | Payload | Description |
-|---|---|---|
-| `subscribe_symbol` | `{symbol}` | Request to add a new ticker to the live feed |
-
----
-
-## Frontend — `dashboard.js` / `dashboard.html`
-
-### Per-symbol state (`history[sym]`)
-```js
-{
-  candles:    [ { x: ms, o, h, l, c, v }, … ],  // sorted ascending
-  lastTrade:  price,                              // latest tick price
-  openPrice:  price,                              // first price seen (for % change)
-}
+```bash
+mysql -u root -p < init.sql
 ```
 
-`MAX_CANDLES = 500` — oldest candles are dropped from the left when the limit is reached.
+3. run app:
 
-### Chart
+```bash
+python app.py
+```
 
-Rendered by **QFChart** (ECharts wrapper). History batches are accumulated in memory without redrawing each chunk. A single `renderChart()` runs after `history_done`. Live ticks update the current bar via `qfChart.updateData()`.
+4. open `http://localhost:8000`
 
-### Components
+### Docker launch
 
-| Component | Purpose |
-|---|---|
-| Ticker bar | Scrollable cards — one per symbol — live price + % change |
-| Candlestick chart | QFChart powered by `history_batch` + `trade` events |
-| Favourites panel | ★ pins a symbol to the sidebar; persisted in `localStorage` |
-| Add Symbol panel | Type a ticker + hit `+` or Enter to subscribe |
-| Trade log | Last 60 raw Finnhub ticks across all symbols |
-| Toast notifications | Top-right popups confirming symbol add success / failure |
-| Clock | Live clock with browser local timezone via `Intl.DateTimeFormat` |
-
-### Debug logging
-
-`debugLog(msg)` POSTs to `/log` → server prints `[CLIENT] …` to stdout. Useful for inspecting client state from the server console.
-
----
-
-## Adding Symbols at Runtime
-
-1. Type a ticker in the **Add Symbol** input (bottom of the left sidebar).
-2. Supported formats — Stock: `TSLA`, `NVDA` · Crypto: `BINANCE:ETHUSDT`, `BINANCE:SOLUSDT`
-3. Click `+` or press **Enter**.
-4. The server validates via yfinance, fetches history, caches it, and broadcasts `history_batch` to **all** clients. A toast confirms success or failure.
-5. If the symbol is already tracked, history is re-sent to the requesting client only (`already: true`).
-
----
-
-## Favourites
-
-- Click ★ on any ticker card to toggle.
-- Pinned symbols appear in the left sidebar with latest price and % change.
-- Persisted across refreshes via `localStorage` (key: `mkt_favourites`).
-
----
-
-## Deployment (Docker)
 ```bash
 docker compose up --build
 ```
 
-Gunicorn is configured with the `geventwebsocket` worker, 1 worker process, 120 s timeout, and `/dev/shm` as the worker tmp dir.
+- web app: `http://localhost:8000`
+- DB: service `db` with init.sql schema seeded
 
-> Only **one Gunicorn worker** (`-w 1`) is used. Socket.IO requires sticky sessions or a single worker when no message broker (e.g. Redis) is configured. Scale horizontally only after adding a Redis Socket.IO adapter.
+## Key endpoints
+
+- `GET /` → dashboard
+- `GET /auth` → login page
+- `GET /api/symbols` → list of symbols
+- `GET /data/<symbol>` → OHLC history
+- `POST /login` → JSON `{username,password}`
+- `POST /register` → JSON `{username,password}`
+- `GET /get-trades?key=<apikey>&symbol=<sym>`
+- `GET /get-pos?key=<apikey>&symbol=<sym>`
+- `GET /post-order?key=<apikey>&side=<B|S>&sym=<sym>&price=<p>&vol=<v>`
+- `GET /admin/start-game?key=<admin_key>`
+
+## Socket.IO events
+
+- `connect`, `disconnect`
+- `game_start`: payload `{symbols, running}`
+- `time_update`: payload `{time_left}`
+- `game_end`: payload `{running, symbols}`
+
+## Project layout
+
+- app.py: main Flask server + routes + SocketIO init
+- auth.py: authentication endpoints
+- trade.py: order and position logic
+- market.py: game state, countdown, socket events
+- game_events.py: socket connect/disconnect events
+- `data/*.csv`: market data source
+- init.sql: schema + seed
+- compose.yaml: Docker Compose config
+
+## Configuration details
+
+- config.py reads `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`
+- admin password constant `ADMIN_PSW` defaults to `admin`
+- requirements.txt includes Flask, SocketIO, gevent, yfinance, MySQL connector
+
+## Contributing
+
+1. fork repository
+2. create branch `feature/<name>`
+3. add tests in tests
+4. open PR with summary and testing notes
+
+For full guidelines, add `CONTRIBUTING.md` and link it here.
+
+## Support
+
+- raise GitHub Issues in this repo for bugs/feature requests
+- read code comments and log output (`[AUTH]`, `[CONN]`, `[GAME]`, `[SOCKET]`)
+
+## License
+
+See LICENSE in repository root.
+
