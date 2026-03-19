@@ -2,6 +2,7 @@ from config import get_db, ADMIN_PSW
 import requests
 from models.order import *
 import re
+from security import blockSQLkey
 
 
 
@@ -45,7 +46,7 @@ def checkUser(key):
         print("[CONN]: Initialized...")
         return (True, None)
 
-def checkNumbers(price, volume):
+def checkNumbers(volume, price= 1):
     
     if not re.fullmatch(r'\d+(\.\d{1,2})?', str(price).strip()):
         return (False, "Price must have at most 2 decimal places")
@@ -192,41 +193,49 @@ def getPositions(key,symbol=""):
     return checkUser(key)
 
 def createOrder(orderDict):
-    symbol = orderDict["sym"].upper()
 
-    verifUser, msgKey = checkUser(orderDict["key"])
-    verifNum, msgNum = checkNumbers(orderDict["price"],orderDict["vol"] )
-    verifSym, msgSym = checkSymbol(symbol)
+    if blockSQLkey(orderDict["key"]):
+
+        symbol = orderDict["sym"].upper()
+
+        verifUser, msgKey = checkUser(orderDict["key"]) #needs protection
+        if orderDict["price"]:
+            verifNum, msgNum = checkNumbers(orderDict["vol"], orderDict["price"])
+            price = int(orderDict["price"])
+        else: 
+            verifNum, msgNum = checkNumbers(orderDict["vol"] )
+            price = None
+        verifSym, msgSym = checkSymbol(symbol) #needs protection
 
 
-    if verifUser and verifNum and verifSym:
-        print("[API-KEY]: Authorized")
-        ORDER_BOOK = OrderBook(getInfoTradesOB(orderDict["sym"], orderDict["key"]))
-        newOrder = Order(orderDict["side"],symbol,int(orderDict["price"]),int(orderDict["vol"]),orderDict["key"])
-        verif, msg = newOrder.checkOrderBalance()
-        if verif:
-            trades, reste = ORDER_BOOK.matchOrder(newOrder)
+        if verifUser and verifNum and verifSym:
+            print("[VALUES]: Authorized")
+            ORDER_BOOK = OrderBook(getInfoTradesOB(orderDict["sym"], orderDict["key"]))
+            newOrder = Order(orderDict["side"],symbol,price,int(orderDict["vol"]),orderDict["key"])
+            verif, msg = newOrder.checkOrderBalance()
+            if verif:
+                trades, reste = ORDER_BOOK.matchOrder(newOrder)
 
-            if reste:
-                #addOrderDB(reste)
-                print("Il en reste")
-            result = {
-                "reste":  reste.to_dict() if reste else None,
-                "trades": [t.to_dict() for t in trades],
-                "error": None
-            }
-            return result
-        else:
-            return {"reste": None, "trades": None, "error": msg}
+                if reste:
+                    #addOrderDB(reste)
+                    print("Il en reste")
+                result = {
+                    "reste":  reste.to_dict() if reste else None,
+                    "trades": [t.to_dict() for t in trades],
+                    "error": None
+                }
+                return result
+            else:
+                return {"reste": None, "trades": None, "error": msg}
+        
+        
+        errMsg = createErrorMessage(msgKey, msgNum, msgSym)
+        
+        print("[API-KEY]: Refused")
+        print("[ERROR]:", errMsg)
+        return {"reste": None, "trades": None, "error": errMsg}
     
-    
-    errMsg = createErrorMessage(msgKey, msgNum, msgSym)
-    
-    print("[API-KEY]: Refused")
-    print("[ERROR]:", errMsg)
-    return {"reste": None, "trades": None, "error": errMsg}
-    
-
+    return {"reste": None, "trades": None, "error": "key not correct format"}
 
 #Format {"reste": Order(), "trades": liste[Order,Order,...], "error": "str" (optional), }
 
