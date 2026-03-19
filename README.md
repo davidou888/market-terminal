@@ -35,9 +35,9 @@ Market Terminal is a real-time trading game and dashboard built with Flask + Fla
 
 ```env
 DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=aDmin@terminaL1263
-DB_NAME=trading
+DB_USER=*****
+DB_PASSWORD=******
+DB_NAME=*****
 ```
 
 2. initialize DB from SQL schema:
