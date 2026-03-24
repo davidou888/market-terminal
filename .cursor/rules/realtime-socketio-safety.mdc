@@ -1,0 +1,14 @@
+---
+description: Realtime Socket.IO event safety and consistency rules
+globs: "{sockets/**/*.py,services/market.py,app.py,static/js/**/*.js}"
+alwaysApply: false
+---
+
+# Realtime Socket.IO Safety
+
+- Treat every socket event payload as untrusted input.
+- Keep event names and payload fields stable and documented.
+- Avoid long blocking work inside socket handlers.
+- Emit server events only after successful state transitions.
+- Handle disconnect/reconnect paths explicitly.
+- Add at least one test or reproducible scenario for critical socket changes.

@@ -1,0 +1,13 @@
+---
+description: Testing and regression gates for backend and realtime flows
+globs: "{tests/**/*.py,testing.py,test2.py,app.py,services/**/*.py,models/**/*.py,static/js/**/*.js}"
+alwaysApply: false
+---
+
+# Testing and Regression Gates
+
+- Add or update tests for behavior changes, not just implementation details.
+- Cover at least one failure path for each new endpoint or service change.
+- Keep critical trading logic tested with deterministic scenarios.
+- Verify frontend/backend contract compatibility for changed response payloads.
+- Prefer small, fast tests first, then integration coverage for risky flows.

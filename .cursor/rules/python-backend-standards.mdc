@@ -1,0 +1,14 @@
+---
+description: Python backend conventions for Flask services and models
+globs: "{app.py,services/**/*.py,models/**/*.py,routes/**/*.py,security.py,extension.py}"
+alwaysApply: false
+---
+
+# Python Backend Standards
+
+- Keep route handlers thin and move business logic to `services/` or `models/`.
+- Validate all external inputs at the boundary and return clear error messages.
+- Use explicit HTTP status codes (`400`, `401`, `403`, `404`, `422`, `500`).
+- Use structured logging; avoid ad-hoc `print` for operational paths.
+- Keep functions focused and avoid hidden side effects.
+- Preserve backward compatibility for response schemas unless migration is explicit.
