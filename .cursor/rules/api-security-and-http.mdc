@@ -1,0 +1,14 @@
+---
+description: API security and HTTP semantics for trading endpoints
+globs: "{app.py,routes/**/*.py,services/**/*.py,static/js/**/*.js}"
+alwaysApply: false
+---
+
+# API Security and HTTP Semantics
+
+- Do not use `GET` for state-changing operations.
+- Prefer `POST`/`PATCH` with JSON body for mutating endpoints.
+- Never place secrets or API keys in query strings.
+- Validate authentication before any mutating operation.
+- Return stable JSON envelopes for success and error cases.
+- Keep frontend requests aligned with backend contract changes.

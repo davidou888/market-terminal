@@ -1,0 +1,13 @@
+---
+description: MySQL integrity rules for trades, positions, and order book writes
+globs: "{models/**/*.py,services/**/*.py,init.sql,tests/**/*.py}"
+alwaysApply: false
+---
+
+# MySQL Data Integrity
+
+- Use parameterized queries for all database operations.
+- Wrap multi-table trade effects in explicit transactions.
+- Ensure updates to balances, positions, trades, and order book are consistent.
+- Keep schema names and code references aligned (`name` vs `symbol`).
+- Add regression checks when changing SQL affecting core trading invariants.
