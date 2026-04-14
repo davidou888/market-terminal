@@ -17,49 +17,41 @@ def addOrderOB(order):
     cursor.execute("INSERT INTO order_book (id,side,symbol, price, quantity, user_api_key) VALUES (%s,%s, %s, %s, %s, %s)", (order.id,order.side,order.symbol, order.price, order.volume, order.userKey))
     conn.commit()
     conn.close()
-    print(f"[DB]: added order ID:{order.id} to order_book" )
+    print(f"[DB]: added order ID:{order.id} to order_book")
 
 def delOrderOB(order):
-   conn, cursor = get_db()
-   cursor.execute("DELETE FROM order_book WHERE id = %s", (order.id,))
-   conn.commit()
-   conn.close()
-   print(f"[DB]: deleted order ID:{order.id} from order_book" )
+    conn, cursor = get_db()
+    cursor.execute("DELETE FROM order_book WHERE id = %s", (order.id,))
+    conn.commit()
+    conn.close()
+    print(f"[DB]: deleted order ID:{order.id} from order_book")
 
 
 def alterOrderOB(order):
-   
-   print(f"order.vol = {order.volume}")
-   conn, cursor = get_db()
-   cursor.execute("UPDATE order_book SET quantity= %s WHERE id=%s", (order.volume, order.id))
-   conn.commit()
-   conn.close()
-   print(f"[DB]: updated order ID:{order.id} from order_book to have vol: {order.volume}" )
+    print(f"order.vol = {order.volume}")
+    conn, cursor = get_db()
+    cursor.execute("UPDATE order_book SET quantity=%s WHERE id=%s", (order.volume, order.id))
+    conn.commit()
+    conn.close()
+    print(f"[DB]: updated order ID:{order.id} from order_book to have vol: {order.volume}")
 
-
-def getMoneyUser(apiKey):
-   print(f"[GET MONEY]: for {apiKey}")
-   conn, cursor = get_db()
-   cursor.execute("SELECT balance FROM users WHERE api_key = %s", (apiKey,))
-   row = cursor.fetchall()
-   print(f"[GET MONEY]: balance = {row[0][0]}")
-   conn.close()
-   return int(row[0][0])
-   
 
 def updateBalance(trade):
-   print("SAK:",trade.sellerApiKey)
-   print("BAK:",trade.buyerApiKey)
-   newBalanceSeller = getMoneyUser(trade.sellerApiKey) + (trade.quantity * trade.price)
-   newBalanceBuyer = getMoneyUser(trade.buyerApiKey) - (trade.quantity * trade.price)
-   print(f"Seller: {newBalanceSeller}")
-   print(f"Buyer: {newBalanceBuyer}")
+   # Une seule connexion pour lire + écrire les deux balances
    conn, cursor = get_db()
-   cursor.execute("UPDATE users SET balance= %s WHERE api_key=%s", (newBalanceSeller, trade.sellerApiKey))
-   conn.commit()
-   cursor.execute("UPDATE users SET balance= %s WHERE api_key=%s", (newBalanceBuyer, trade.buyerApiKey))
-   conn.commit()
-   conn.close()
+   try:
+      cursor.execute("SELECT balance FROM users WHERE api_key = %s", (trade.sellerApiKey,))
+      newBalanceSeller = int(cursor.fetchone()[0]) + (trade.quantity * trade.price)
+
+      cursor.execute("SELECT balance FROM users WHERE api_key = %s", (trade.buyerApiKey,))
+      newBalanceBuyer = int(cursor.fetchone()[0]) - (trade.quantity * trade.price)
+
+      cursor.execute("UPDATE users SET balance=%s WHERE api_key=%s", (newBalanceSeller, trade.sellerApiKey))
+      cursor.execute("UPDATE users SET balance=%s WHERE api_key=%s", (newBalanceBuyer, trade.buyerApiKey))
+      conn.commit()
+      print(f"[BALANCE]: seller={newBalanceSeller} buyer={newBalanceBuyer}")
+   finally:
+      conn.close()
 
 
 
