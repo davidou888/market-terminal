@@ -1,120 +1,239 @@
-# Market Terminal
+# market-terminal
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)
+> A real-time competitive trading simulation platform. Place orders, match trades, and climb the leaderboard — all within a timed game session.
 
-## What the project does
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square)](https://www.python.org/)
+[![Flask](https://img.shields.io/badge/flask-2.3%2B-lightgrey?style=flat-square)](https://flask.palletsprojects.com/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
+[![Docker](https://img.shields.io/badge/docker-ready-blue?style=flat-square)](./compose.yaml)
 
-Market Terminal is a real-time trading game and dashboard built with Flask + Flask-SocketIO, backed by a MySQL order book. It provides:
+---
 
-- live symbol data + historical price series (`/data/<symbol>` from `data/*.csv`)
-- REST endpoints for trades, positions, and orders
-- secure user authentication (`/login`, `/register`) with API keys
-- game engine events (`game_start`, `time_update`, `game_end`)
-- order matching and trade log persistence via MySQL
+## What is this?
 
-## Why this is useful
+**market-terminal** is a web-based trading game where participants compete in real time against a shared order book. An admin starts a timed session, symbols are revealed, and players place limit or market orders through a live dashboard. Trades are matched by a price-time priority engine, positions and balances update instantly, and a leaderboard tracks who is winning.
 
-- great learning platform for trading systems and matching engines
-- simple architecture for rapid prototyping
-- supports asynchronous real-time updates
-- includes Docker support for consistent local/dev environments
-- friendly, extendable codebase for custom market rules
+It is designed as a learning platform for trading systems — the matching engine, order book structure, and position accounting are real implementations, not stubs.
 
-## Quickstart
+---
 
-### prerequisites
+## Features
+
+- **Live order book** — bids and asks rendered in real time via WebSocket
+- **Price-time priority matching engine** — handles partial fills, market orders, and remainder persistence
+- **Candlestick chart** — historical price series per symbol loaded from CSV
+- **Portfolio panel** — live positions with average price and P&L
+- **Leaderboard** — ranks all players by portfolio value during the session
+- **Timed game sessions** — admin-triggered countdown with `game_start` / `game_end` broadcast events
+- **Secure auth** — bcrypt password hashing, UUID v4 API keys
+- **Dark / light theme toggle**
+- **Docker Compose** — one command to run the full stack
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.11, Flask, Flask-SocketIO |
+| Async runtime | gevent |
+| Database | MySQL 8 |
+| Frontend | Vanilla JS, ECharts, Socket.IO client |
+| Auth | bcrypt, UUID v4 |
+| Container | Docker Compose |
+
+---
+
+## Getting Started
+
+### Prerequisites
 
 - Python 3.11+
-- Docker (recommended) or local MySQL
-- `pip install -r requirements.txt`
+- Docker and Docker Compose (recommended), **or** a local MySQL 8 instance
 
-### local launch
+---
 
-1. copy/create `config.env`:
+### Option A — Docker (recommended)
 
-```env
-DB_HOST=localhost
-DB_USER=*****
-DB_PASSWORD=******
-DB_NAME=*****
+```bash
+git clone <repo-url>
+cd market-terminal
+
+# Copy and fill in the environment file
+cp config.env.example config.env   # edit DB_* and ADMIN_KEY values
+
+docker compose up --build
 ```
 
-2. initialize DB from SQL schema:
+Open `http://localhost:8000`.
+
+---
+
+### Option B — Local setup
+
+```bash
+git clone <repo-url>
+cd market-terminal
+
+python -m venv .venv
+# Windows
+.venv\Scripts\Activate.ps1
+# macOS / Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+Initialize the database:
 
 ```bash
 mysql -u root -p < init.sql
 ```
 
-3. run app:
+Set environment variables (see [Configuration](#configuration)), then run:
 
 ```bash
 python app.py
 ```
 
-4. open `http://localhost:8000`
+Open `http://localhost:8000`.
 
-### Docker launch
+---
 
-```bash
-docker compose up --build
+## Configuration
+
+Create a `config.env` file at the project root (never commit this file):
+
+```env
+DB_HOST=localhost
+DB_USER=your_db_user
+DB_PASSWORD=your_db_password
+DB_NAME=trading
+ADMIN_KEY=choose-a-strong-secret-key
 ```
 
-- web app: `http://localhost:8000`
-- DB: service `db` with init.sql schema seeded
+| Variable | Description |
+|---|---|
+| `DB_HOST` | MySQL host |
+| `DB_USER` | MySQL user |
+| `DB_PASSWORD` | MySQL password |
+| `DB_NAME` | Database name (default: `trading`) |
+| `ADMIN_KEY` | Secret key required to call admin endpoints |
 
-## Key endpoints
+> **Never use default or example credentials in production.**
 
-- `GET /` → dashboard
-- `GET /auth` → login page
-- `GET /api/symbols` → list of symbols
-- `GET /data/<symbol>` → OHLC history
-- `POST /login` → JSON `{username,password}`
-- `POST /register` → JSON `{username,password}`
-- `GET /get-trades?key=<apikey>&symbol=<sym>`
-- `GET /get-pos?key=<apikey>&symbol=<sym>`
-- `GET /post-order?key=<apikey>&side=<B|S>&sym=<sym>&price=<p>&vol=<v>`
-- `GET /admin/start-game?key=<admin_key>`
+---
 
-## Socket.IO events
+## Project Structure
 
-- `connect`, `disconnect`
-- `game_start`: payload `{symbols, running}`
-- `time_update`: payload `{time_left}`
-- `game_end`: payload `{running, symbols}`
+```
+market-terminal/
+├── app.py                  # Flask app, routes, entry point
+├── config.py               # DB connection, env variable loading
+├── security.py             # Input validation (UUID v4 enforcement)
+├── extension.py            # SocketIO instance (avoids circular imports)
+├── init.sql                # DB schema and seed data
+├── compose.yaml            # Docker Compose config
+├── requirements.txt
+│
+├── models/
+│   └── order.py            # Order, Trade, Position, OrderBook classes
+│
+├── services/
+│   ├── trade.py            # Validation helpers and order orchestration
+│   └── market.py           # Game state, countdown, socket broadcasts
+│
+├── routes/
+│   └── auth.py             # /login and /register blueprints
+│
+├── sockets/
+│   ├── game_events.py      # connect / disconnect handlers
+│   └── market_events.py    # market socket event handlers
+│
+├── templates/
+│   ├── dashboard.html      # Main trading UI
+│   └── login.html          # Auth page
+│
+├── static/
+│   ├── css/dashboard.css
+│   └── js/dashboard.js
+│
+└── data/
+    └── <SYMBOL>.csv        # Historical price data per symbol
+```
 
-## Project layout
+---
 
-- app.py: main Flask server + routes + SocketIO init
-- auth.py: authentication endpoints
-- trade.py: order and position logic
-- market.py: game state, countdown, socket events
-- game_events.py: socket connect/disconnect events
-- `data/*.csv`: market data source
-- init.sql: schema + seed
-- compose.yaml: Docker Compose config
+## API Reference
 
-## Configuration details
+### Auth
 
-- config.py reads `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`
-- admin password constant `ADMIN_PSW` defaults to `admin`
-- requirements.txt includes Flask, SocketIO, gevent, yfinance, MySQL connector
+| Method | Endpoint | Body | Description |
+|---|---|---|---|
+| `POST` | `/login` | `{username, password}` | Returns `{ok, api_key}` |
+| `POST` | `/register` | `{username, password}` | Creates user, returns `{ok, api_key}` |
+
+### Trading
+
+| Method | Endpoint | Params | Description |
+|---|---|---|---|
+| `GET` | `/get-trades` | `key`, `symbol` (optional) | List open orders |
+| `GET` | `/get-pos` | `key`, `symbol` (optional) | List user positions |
+| `GET` | `/post-order` | `key`, `side`, `sym`, `price`, `vol` | Place an order |
+
+> `side`: `B` (buy) or `S` (sell). Leave `price` empty for a market order.
+
+### Market data
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/symbols` | List of active symbols |
+| `GET` | `/data/<symbol>` | Historical OHLC series from CSV |
+
+### Admin
+
+| Method | Endpoint | Params | Description |
+|---|---|---|---|
+| `GET` | `/admin/start-game` | `key` (admin key) | Starts a new 10-minute game session |
+
+---
+
+## WebSocket Events
+
+All events are broadcast to all connected clients via Socket.IO.
+
+| Event | Direction | Payload | Description |
+|---|---|---|---|
+| `connect` | client → server | — | Client joins |
+| `disconnect` | client → server | — | Client leaves |
+| `game_start` | server → client | `{symbols, running}` | Session started |
+| `time_update` | server → client | `{time_left}` | Countdown tick (every second) |
+| `game_end` | server → client | `{running, symbols}` | Session ended with final prices |
+| `made_trade` | server → client | `{symbol, quantity, price}` | Trade executed |
+
+---
+
+## Running Tests
+
+```bash
+pytest -q
+```
+
+Tests live in `tests/`. Coverage is currently focused on the matching engine and order validation. Contributions expanding endpoint and WebSocket test coverage are welcome.
+
+---
 
 ## Contributing
 
-1. fork repository
-2. create branch `feature/<name>`
-3. add tests in tests
-4. open PR with summary and testing notes
+1. Fork the repository
+2. Create a branch: `git checkout -b feature/your-feature`
+3. Make your changes and add tests where relevant
+4. Open a pull request with a short summary and testing notes
 
-For full guidelines, add `CONTRIBUTING.md` and link it here.
+Please do not commit `config.env`, credentials, or generated data files.
 
-## Support
-
-- raise GitHub Issues in this repo for bugs/feature requests
-- read code comments and log output (`[AUTH]`, `[CONN]`, `[GAME]`, `[SOCKET]`)
+---
 
 ## License
 
-See LICENSE in repository root.
-
+[MIT](./LICENSE)
